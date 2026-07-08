@@ -1,40 +1,29 @@
 --[[ Layouts test mode ]] --
--- Preview renderer for the layout selector. Draws non-secure placeholder frames that mirror the REAL config:
--- real unit-frame colours/texture/size, and -- when the pet container feature is on -- pet groups as a SECOND
--- grid anchored at the real pet container. Only this file changes; frames are plain (non-secure), no taint.
+-- Preview renderer for the layout selector. Builds REAL Grid2 unit frames (Grid2Frame.Prototype) that
+-- self-render EVERY configured indicator for a live unit, so the preview looks exactly like the real frames
+-- with the user's indicators + settings. Frames are plain (non-secure) and are deliberately NOT registered
+-- with Grid2Frame, NOT added to ClickCastFrames, carry NO GridFrameEvents scripts and never call
+-- Grid2:SetFrameUnit -- so they are invisible to the live engine and cannot disturb real frames/statuses.
+-- Only this file changes.
 local Grid2 = Grid2
 local Grid2Layout = Grid2:GetModule("Grid2Layout")
 local Grid2Frame  = Grid2:GetModule("Grid2Frame")
 
 local max = math.max
+local format = string.format
+local wipe = wipe
 local pairs, ipairs, unpack = pairs, ipairs, unpack
+local UnitExists = UnitExists
 
 local layoutName  -- name of the layout being previewed (nil => test off)
 
 -- One descriptor per preview grid. mainGrid -> Grid2Layout.frame; petGrid -> Grid2Layout.petFrame (only when
--- the pet container feature is enabled). Each owns pooled frames that persist across loads, the per-column
--- membership rebuilt every refresh, and the container scale saved on first render.
-local mainGrid = { isPet = false, frames = {}, cols = {}, colCount = 0, rowCount = 0, active = false }
-local petGrid  = { isPet = true,  frames = {}, cols = {}, colCount = 0, rowCount = 0, active = false }
+-- the pet container feature is enabled). Each owns pooled REAL frames that persist across loads, the per-column
+-- membership rebuilt every refresh, and the container scale saved on first render. headerId seeds a unique,
+-- pattern-matching frame name (see AcquireFrame) so the icon/cooldown indicators do not crash on a nil name.
+local mainGrid = { isPet = false, headerId = 901, frames = {}, cols = {}, colCount = 0, rowCount = 0, active = false }
+local petGrid  = { isPet = true,  headerId = 902, frames = {}, cols = {}, colCount = 0, rowCount = 0, active = false }
 local grids = { mainGrid, petGrid }
-
--- Fill colours: the player's own cell shows their real name + class colour; every other spot gets a stable
--- random class colour so the preview looks like a populated raid (cached per slot so it doesn't flicker).
-local classList = CLASS_SORT_ORDER
-local classNames = LOCALIZED_CLASS_NAMES_MALE
-local slotCache = {}
-local WHITE = { r = 1, g = 1, b = 1 }
--- Emulated unit per slot (cached so it doesn't flicker): a random class (drives the class-coloured name) and a
--- random health fraction 0.15-1.0 (drives the health-bar fill level). Surface-level fake data -- no live units.
-local function GetSlot(gridKey, nx, ny)
-	local key = gridKey .. nx .. ":" .. ny
-	local s = slotCache[key]
-	if not s then
-		s = { cls = classList[random(#classList)], hp = random(15, 100) / 100 }
-		slotCache[key] = s
-	end
-	return s
-end
 
 -- Toggle every real header (main + pet + spacer). Unchanged.
 function Grid2Layout:ShowFrames(enabled)
@@ -46,7 +35,7 @@ function Grid2Layout:ShowFrames(enabled)
 	end
 end
 
--- Growth resolver copied from Grid2/GridLayout.lua GetGrowth (a file-local there, not exported).
+-- Growth resolver copied from Grid2/GridLayout.lua GetGrowth (a file-local there). Still needed for geometry.
 local function GetGrowth(p, isPet)
 	if isPet and p.petEnabled and p.petOwnGrowth then
 		local h = p.petHorizontal
@@ -54,61 +43,6 @@ local function GetGrowth(p, isPet)
 		return h, p.petGroupAnchor or p.groupAnchor, p.petPadding or p.Padding, p.petSpacing or p.Spacing
 	end
 	return p.horizontal, p.groupAnchor, p.Padding, p.Spacing
-end
-
--- Real unit-frame appearance, mirroring GridFrame.lua UpdatePetProfile: a pet frame reads db.profile.pet.<key>
--- when the pet override is on (each key falling back to the player value), else it is a player frame. Returns
--- texture path, ring colour (frameColor), content colour (frameContentColor) and the inner-border inset -- the
--- exact values GridFramePrototype:Layout paints. Outer edge is MAIN for both grids because the real engine
--- shares one frameBackdrop across player and pet frames.
-local function GetFrameStyle(isPet)
-	local fp  = Grid2Frame.db.profile
-	local pet = isPet and fp.pet
-	if pet and pet.enabled then
-		return Grid2:MediaFetch("statusbar", pet.frameTexture or fp.frameTexture, "Gradient"),
-			pet.frameColor or fp.frameColor,
-			pet.frameContentColor or fp.frameContentColor,
-			((pet.frameBorder or fp.frameBorder) + (pet.frameBorderDistance or fp.frameBorderDistance)) * 2
-	end
-	return Grid2:MediaFetch("statusbar", fp.frameTexture, "Gradient"),
-		fp.frameColor, fp.frameContentColor, (fp.frameBorder + fp.frameBorderDistance) * 2
-end
-
--- Shared outer backdrop, rebuilt each refresh from the MAIN profile (same border tex/size the real
--- frameBackdrop shares). bgFile=WHITE8X8 is coloured per-cell with frameColor.
-local sharedBackdrop = { bgFile = [[Interface\Buttons\WHITE8X8]], tile = true, tileSize = 16,
-	insets = { left = 0, right = 0, top = 0, bottom = 0 } }
-local function UpdateSharedBackdrop()
-	local fp = Grid2Frame.db.profile
-	local e = fp.frameBorder
-	sharedBackdrop.edgeFile = Grid2:MediaFetch("border", fp.frameBorderTexture, "Grid2 Flat")
-	sharedBackdrop.edgeSize = e
-	local ins = sharedBackdrop.insets
-	ins.left, ins.right, ins.top, ins.bottom = e, e, e, e
-end
-
--- Pooled frame #i for a grid, parented to that grid's container. Each carries a child "content" texture that
--- reproduces the real inner container; the frame's own backdrop reproduces the outer frame (frameColor ring).
-local function LayoutGetTestFrame(grid, i)
-	local pool = grid.frames
-	local f = pool[i]
-	if not f then
-		f = CreateFrame("Frame", nil, grid.container)
-		local t = f:CreateTexture(nil, "ARTWORK")
-		t:SetPoint("CENTER", f, "CENTER")
-		f.content = t
-		local fs = f:CreateFontString(nil, "OVERLAY")
-		fs:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1)
-		fs:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1)
-		fs:SetJustifyH("CENTER")
-		fs:SetJustifyV("MIDDLE")
-		fs:SetFont(STANDARD_TEXT_FONT, 10, "OUTLINE")
-		fs:SetTextColor(1, 1, 1, 1)
-		f.name = fs
-		pool[i] = f
-	end
-	f:SetBackdrop(sharedBackdrop)
-	return f
 end
 
 -- Vector maths, unchanged from the original.
@@ -131,7 +65,7 @@ do
 end
 
 -- Lazily save a container's scale and apply the previewed layout's scale (main formula, or the pet formula for
--- the pet frame). Idempotent on savedScale so later refreshes don't churn. Save/restore position keeps it put.
+-- the pet frame). Idempotent on savedScale. Save/restore position keeps it put. Unchanged.
 local function EnsureScaled(grid)
 	if grid.savedScale ~= nil then return end
 	local f = grid.container
@@ -158,8 +92,7 @@ local function RestoreScale(grid)
 end
 
 -- Column membership per grid. Pet groups form the separate pet grid only when the feature is enabled AND the
--- pet container exists; otherwise they fold into the main grid exactly as before. Rebuilt every refresh so a
--- petEnabled toggle (which only triggers a refresh, not a reload) re-partitions correctly.
+-- pet container exists; otherwise they fold into the main grid. Rebuilt every refresh. Unchanged.
 local function LayoutBuild()
 	mainGrid.active, petGrid.active = false, false
 	mainGrid.colCount, mainGrid.rowCount, mainGrid.col = 0, 0, 1
@@ -178,7 +111,7 @@ local function LayoutBuild()
 		local isPet    = ptype == "raidpet" or ptype == "partypet"
 		local isSpacer = ptype == "spacer"
 		local grid     = (petSeparate and isPet) and petGrid or mainGrid
-		local unitPerColumn = l.unitsPerColumn or defaults.unitsPerColumn or 5  -- was defaults.unitPerColumn (typo)
+		local unitPerColumn = l.unitsPerColumn or defaults.unitsPerColumn or 5
 		local maxColumns    = l.maxColumns    or defaults.maxColumns    or 1
 		grid.colCount = grid.colCount + maxColumns
 		grid.rowCount = max(grid.rowCount, unitPerColumn)
@@ -193,12 +126,123 @@ local function LayoutBuild()
 	petGrid.active  = petSeparate and petGrid.colCount > 0
 end
 
--- Render one grid into its container with its OWN growth, frame size, style and colours.
+-- ============================ REAL-FRAME construction & rendering ============================
+
+-- Existing unit tokens, split main vs pet, cycled so every filled cell shows a real unit. Rebuilt per refresh.
+local unitPool = { [false] = {}, [true] = {} }
+local function BuildUnitPools()
+	local main, pet = unitPool[false], unitPool[true]
+	wipe(main); wipe(pet)
+	if UnitExists("player") then main[#main + 1] = "player" end
+	for i = 1, 4  do local u = "party" .. i; if UnitExists(u) then main[#main + 1] = u end end
+	for i = 1, 40 do local u = "raid"  .. i; if UnitExists(u) then main[#main + 1] = u end end
+	if UnitExists("pet") then pet[#pet + 1] = "pet" end
+	for i = 1, 4  do local u = "partypet" .. i; if UnitExists(u) then pet[#pet + 1] = u end end
+	for i = 1, 40 do local u = "raidpet"  .. i; if UnitExists(u) then pet[#pet + 1] = u end end
+end
+-- nth filled cell -> a real token (wraps around); fallback to "player" (always exists) so a status always has
+-- a valid unit to read.
+local function PickUnit(isPet, n)
+	local pool = unitPool[isPet]
+	local c = #pool
+	if c == 0 then return "player" end
+	return pool[((n - 1) % c) + 1]
+end
+
+-- Acquire pooled REAL frame #i for a grid. Created ONCE: a plain (non-secure) frame with a UNIQUE,
+-- pattern-matching name (Grid2LayoutHeader<headerId>UnitButton<i>) so the icon/cooldown indicators'
+-- parent:GetName():match("Grid2LayoutHeader(%d+)UnitButton(%d+)") resolves instead of crashing on a nil name;
+-- headerId 901/902 cannot collide with real headers. We copy the prototype closures (they keep their upvalues
+-- frameBackdrop/petProfile/Grid2Frame/Grid2, so they render exactly like real frames) and create the container
+-- TEXTURE that Layout()/the bar indicators size themselves from. We do NOT: RegisterFrame, add to
+-- ClickCastFrames, attach GridFrameEvents, or set the initial-width/height secure attributes.
+local function AcquireFrame(grid, i)
+	local pool = grid.frames
+	local f = pool[i]
+	if not f then
+		-- Button, NOT Frame: real Grid2 frames are Buttons (SecureUnitButtonTemplate), and
+		-- GridFramePrototype:Layout calls self:SetHighlightTexture -- a Button-only method that errors on a
+		-- plain Frame. A non-secure Button has every Frame method plus the button methods Layout/indicators need.
+		f = CreateFrame("Button", format("Grid2LayoutHeader%dUnitButton%d", grid.headerId, i), grid.container)
+		for name, value in pairs(Grid2Frame.Prototype) do
+			f[name] = value  -- Layout, CreateIndicators, UpdateIndicators
+		end
+		f.container = f:CreateTexture()  -- a TEXTURE, exactly like GridFrame_Init
+		f.isPet = grid.isPet
+		f.builtIndicators = {}           -- name-set of indicators for which we have created a sub-region
+		pool[i] = f
+	elseif f:GetParent() ~= grid.container then
+		f:SetParent(grid.container)
+	end
+	return f
+end
+
+-- Keep a frame's indicator sub-regions in sync with the live indicator set, WITHOUT ever calling
+-- indicator:Disable (which mutates the SHARED indicator object -- self.Layout=nil/self.OnUpdate=nil -- and
+-- would break every real frame). We call CreateIndicators only on the first build or when an indicator was
+-- ADDED (cheap gate; CreateFrame is the expensive part), and we manually Hide the sub-region of any indicator
+-- that was REMOVED since the last refresh so it does not leave a ghost.
+local function SyncIndicators(frame)
+	local built = frame.builtIndicators
+	local needCreate = not frame.created
+	for name in Grid2:IterateIndicators() do
+		if not built[name] then needCreate = true end
+	end
+	if needCreate then
+		frame:CreateIndicators()  -- idempotent: reuses existing sub-regions, builds newly-added ones
+		frame.created = true
+	end
+	for name in pairs(built) do
+		if not Grid2.indicators[name] then
+			local r = frame[name]
+			if r and r.Hide then r:Hide() end
+			built[name] = nil
+		end
+	end
+	for name in Grid2:IterateIndicators() do
+		built[name] = true
+	end
+end
+
+-- Turn pooled frame #i into a live cell for `unit`: real size/appearance + every configured indicator, exactly
+-- as the live frames do. Positioning/sizing is done by the caller.
+local function PrepareFrame(grid, i, unit, frameLevel)
+	local f = AcquireFrame(grid, i)
+	f.isPet = grid.isPet             -- pet appearance/size is chosen inside GridFramePrototype:Layout
+	f:SetFrameLevel(frameLevel)      -- BEFORE Layout: bar/icon levels are parent:GetFrameLevel() + offset
+	SyncIndicators(f)                -- create added indicators, hide removed ones
+	f:Layout()                       -- size + backdrop + container + indicator layout, all from the live profile
+	f.unit = unit                    -- DIRECT field assignment -- never Grid2:SetFrameUnit (stays isolated)
+	f:UpdateIndicators()             -- pull live status data once (pure reads)
+	return f
+end
+
+-- Release a preview cell before hiding: drive each live indicator with a NIL status so timer-owning indicators
+-- (duration/elapsed Text -> TimerStop, duration Bar -> tcancel) deregister themselves from their module's
+-- shared timer tables -- otherwise they keep firing on the hidden preview widget for the rest of the session.
+-- Keyed by this frame's OWN sub-regions, so real frames are never touched. pcall-guarded so a throwing
+-- indicator can't abort teardown.
+local function ReleaseFrame(f)
+	if f.unit then
+		local unit = f.unit
+		f.unit = nil
+		for _, indicator in Grid2:IterateIndicators() do
+			if indicator.OnUpdate then
+				pcall(indicator.OnUpdate, indicator, f, unit, nil)
+			end
+		end
+	end
+	f:Hide()
+end
+
+-- Render one grid into its container. Reuses the original geometry: growth, frame size, LayoutGetVectors, the
+-- nx/ny placement loop with its TOPLEFT formula, the spacer skip, leftover-hide and the final container sizing.
+-- The ONLY change from the schematic version is that each non-spacer cell is a real self-rendering frame.
 local function RenderGrid(grid)
 	local f0 = grid.container
 	if not (grid.active and f0) then
 		local pool = grid.frames
-		for j = 1, #pool do pool[j]:Hide() end
+		for j = 1, #pool do ReleaseFrame(pool[j]) end
 		RestoreScale(grid)  -- hand the container back its real scale when we stop previewing into it
 		return
 	end
@@ -207,66 +251,30 @@ local function RenderGrid(grid)
 	local p = Grid2Layout.db.profile
 	local horizontal, groupAnchor, Padding, Spacing = GetGrowth(p, grid.isPet)
 	local width, height = Grid2Frame:GetFrameSize(grid.isPet)
-	local texture, fc, cc, inset = GetFrameStyle(grid.isPet)
-	local iw = max(width  - inset, 1)
-	local ih = max(height - inset, 1)
 	local frameLevel = f0:GetFrameLevel() + 1
-	-- the player occupies the first real cell of the main grid (name + real class colour); the rest are filled
-	-- with random class colours.
-	local isMain = grid == mainGrid
-	local gridKey = grid.isPet and "p" or "m"
-	local playerDone = false
-	local _, playerClass = UnitClass("player")
-	local playerColor = RAID_CLASS_COLORS[playerClass] or WHITE
-	local playerName = UnitName("player")
-	local playerHp = random(15, 100) / 100
 
 	local ux, uy, vx, vy, px, py, realCols, realRows =
 		LayoutGetVectors(groupAnchor, horizontal, Spacing, Spacing, width + Padding, height + Padding, grid.colCount, grid.rowCount)
 
-	local i = 1
+	local i, filled = 1, 0
 	for nx = 0, grid.colCount - 1 do
 		local col = grid.cols[nx + 1]
 		for ny = 0, grid.rowCount - 1 do
-			local frame = LayoutGetTestFrame(grid, i)
 			if col.spacer then
-				frame:Hide()
+				ReleaseFrame(AcquireFrame(grid, i))  -- keep the pool dense (no nil holes -> #pool stays valid)
 			else
+				filled = filled + 1
+				local frame = PrepareFrame(grid, i, PickUnit(grid.isPet, filled), frameLevel)
 				frame:ClearAllPoints()
 				frame:SetPoint("TOPLEFT", f0, "TOPLEFT", nx * ux + ny * vx + px, -(nx * uy + ny * vy + py))
-				frame:SetSize(width, height)
-				frame:SetFrameLevel(frameLevel)
-				frame:SetBackdropColor(fc.r, fc.g, fc.b, fc.a or 1)        -- inner ring == configured frameColor
-				frame:SetBackdropBorderColor(fc.r, fc.g, fc.b, fc.a or 1)  -- visible edge; transparent edge looked spaced
-				-- Follow the configured colouring rules: the health/background is the STATIC frameContentColor,
-				-- and the NAME text is CLASS-coloured. Player's cell shows their real name; the rest get a class
-				-- name placeholder in a stable random class colour so the class-coloured name is visible.
-				-- Emulated unit: a class-coloured name + a health bar (the static configured colour) filled to a
-				-- random health % over the darker frame backdrop, so cells look like real, varied raid frames.
-				local nameText, ncr, ncg, ncb, hp
-				if isMain and not playerDone then
-					playerDone = true
-					nameText, ncr, ncg, ncb, hp = playerName, playerColor.r, playerColor.g, playerColor.b, playerHp
-				else
-					local s = GetSlot(gridKey, nx, ny)
-					local clr = RAID_CLASS_COLORS[s.cls] or WHITE
-					nameText, ncr, ncg, ncb, hp = (classNames and classNames[s.cls]) or s.cls, clr.r, clr.g, clr.b, s.hp
-				end
-				local content = frame.content
-				content:SetTexture(texture)
-				content:ClearAllPoints()
-				content:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", (width - iw) / 2, (height - ih) / 2)
-				content:SetSize(iw, max(ih * hp, 1))  -- health bar filled bottom-up to the emulated health %
-				content:SetVertexColor(cc.r, cc.g, cc.b, cc.a or 1)  -- static configured health colour
-				frame.name:SetText(nameText or "")
-				frame.name:SetTextColor(ncr, ncg, ncb, 1)
+				frame:SetSize(width, height)  -- explicit + combat-safe (non-secure); Layout skips SetSize in combat
 				frame:Show()
 			end
 			i = i + 1
 		end
 	end
 	local pool = grid.frames  -- hide leftovers from a previous, larger render of this grid
-	for j = i, #pool do pool[j]:Hide() end
+	for j = i, #pool do ReleaseFrame(pool[j]) end
 
 	f0:SetSize(Spacing * 2 + realCols * (width + Padding) - Padding,
 	           Spacing * 2 + realRows * (height + Padding) - Padding)
@@ -276,7 +284,7 @@ local function LayoutHide(restoreRealLayout)
 	if not layoutName then return end
 	for _, grid in ipairs(grids) do
 		local pool = grid.frames
-		for j = 1, #pool do pool[j]:Hide() end
+		for j = 1, #pool do ReleaseFrame(pool[j]) end  -- deregister timers + hide each frame + its sub-regions
 		RestoreScale(grid)
 	end
 	if restoreRealLayout then
@@ -297,7 +305,7 @@ end
 local function LayoutRefresh()
 	if not layoutName then return end
 	Grid2Layout:ShowFrames(false)  -- hide all real headers behind the preview
-	UpdateSharedBackdrop()         -- pick up live border texture/size
+	BuildUnitPools()               -- refresh which real unit tokens currently exist
 	LayoutBuild()                  -- (re)partition main vs pet from the live petEnabled state
 	RenderGrid(mainGrid)
 	RenderGrid(petGrid)
