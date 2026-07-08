@@ -50,6 +50,10 @@ L["Pet Container Style"] = true
 L["Use a separate pet style"] = true
 L["Give the pet container its own background/border textures and colors instead of the main grid's."] = true
 
+L["Pet Growth"] = true
+L["Use separate pet growth"] = true
+L["Let pet groups grow in their own direction/anchor instead of following the main grid."] = true
+
 L["Default Font"] = true
 
 L["Invert Bar Color"] = true

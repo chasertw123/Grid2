@@ -89,15 +89,30 @@ local anchorPoints = {
 	LEFT = 1,
 	RIGHT = -1
 }
--- nil or false for vertical
-function GridLayoutHeaderClass.prototype:SetOrientation(horizontal)
+
+-- Resolve growth (horizontal, groupAnchor, Padding, Spacing) for a header. Pet headers use their own
+-- values only when petEnabled + petOwnGrowth (each inheriting the main value when unset); everything else
+-- returns the main values, so with the feature off this is byte-for-byte the old behavior. Declared BEFORE
+-- SetOrientation on purpose: it is a file-local upvalue bound at function-definition time.
+local function GetGrowth(p, isPet)
+	if isPet and p.petEnabled and p.petOwnGrowth then
+		local h = p.petHorizontal
+		if h == nil then h = p.horizontal end
+		return h, p.petGroupAnchor or p.groupAnchor, p.petPadding or p.Padding, p.petSpacing or p.Spacing
+	end
+	return p.horizontal, p.groupAnchor, p.Padding, p.Spacing
+end
+
+-- Growth resolved per-header from self.isPetHeader (stamped at creation); no parameter (callers pass none).
+function GridLayoutHeaderClass.prototype:SetOrientation()
 	if not self.initialConfigFunction then return end
-	local settings = Grid2Layout.db.profile
+	local p = Grid2Layout.db.profile
+	local horizontal, groupAnchor, padding = GetGrowth(p, self.isPetHeader)
 	local vertical = not horizontal
-	local point = anchorPoints[not vertical][settings.groupAnchor]
+	local point = anchorPoints[not vertical][groupAnchor]
 	local direction = anchorPoints[point]
-	local xOffset = horizontal and settings.Padding * direction or 0
-	local yOffset = vertical and settings.Padding * direction or 0
+	local xOffset = horizontal and padding * direction or 0
+	local yOffset = vertical and padding * direction or 0
 	self:SetLayoutAttribute("xOffset", xOffset)
 	self:SetLayoutAttribute("yOffset", yOffset)
 	self:SetLayoutAttribute("point", point)
@@ -173,7 +188,10 @@ Grid2Layout.defaultDB = {
 		petOwnLock = false,
 		-- (deferred feature) independent pet backdrop/border styling; false => pet uses the shared main style.
 		-- Pet* style keys are intentionally absent => inherit the main values until overridden.
-		petOwnStyle = false
+		petOwnStyle = false,
+		-- (deferred feature) independent pet growth direction; false => pet uses main horizontal/groupAnchor.
+		-- petHorizontal / petGroupAnchor / petPadding / petSpacing are intentionally absent => inherit main.
+		petOwnGrowth = false
 	}
 }
 
@@ -429,11 +447,8 @@ function Grid2Layout:PlaceGroup(frame, groupNumber)
 	else
 		container, prev = self.frame, previousFrame
 	end
-	local horizontal = settings.horizontal
+	local horizontal, anchor, padding, spacing = GetGrowth(settings, frame.isPetHeader)
 	local vertical = not horizontal
-	local padding = settings.Padding
-	local spacing = settings.Spacing
-	local anchor = settings.groupAnchor
 	local relPoint = relativePoints[vertical][anchor]
 	local xMult = relativePoints.xMult[anchor]
 	local yMult = relativePoints.yMult[anchor]
@@ -479,9 +494,11 @@ local function SetAllAttributes(header, p, list, fix)
 	local petgroup = false
 	for attr, value in next, list do
 		if attr == "unitsPerColumn" then
-			header:SetLayoutAttribute("columnSpacing", p.Padding)
+			-- Resolve per-header so a pet group's column spacing/anchor match its own growth axis.
+			local ph, pa, ppad = GetGrowth(p, header.isPetHeader)
+			header:SetLayoutAttribute("columnSpacing", ppad)
 			header:SetLayoutAttribute("unitsPerColumn", value)
-			header:SetLayoutAttribute("columnAnchorPoint", anchorPoints[not p.horizontal][p.groupAnchor] or p.groupAnchor)
+			header:SetLayoutAttribute("columnAnchorPoint", anchorPoints[not ph][pa] or pa)
 		elseif attr ~= "type" then
 			header:SetLayoutAttribute(attr, value)
 		else
@@ -525,7 +542,6 @@ function Grid2Layout:LoadLayout(layoutName)
 	self:Scale()
 
 	local p = self.db.profile
-	local horizontal = p.horizontal
 
 	for type, headers in pairs(self.groups) do
 		self.indexes[type] = 0
@@ -557,7 +573,7 @@ function Grid2Layout:LoadLayout(layoutName)
 			end
 			SetAllAttributes(layoutGroup, p, l, true)
 			ForceFramesCreation(layoutGroup)
-			layoutGroup:SetOrientation(horizontal)
+			layoutGroup:SetOrientation()
 		end
 		self:PlaceGroup(layoutGroup, i)
 
@@ -587,9 +603,13 @@ function Grid2Layout:UpdateSize()
 
 	local p = self.db.profile
 	local usePet = p.petEnabled and self.petFrame
+	-- Resolve growth per container so a pet group on its own axis is accumulated and sized correctly.
+	-- With petOwnGrowth off these all equal the main values, so the math is byte-for-byte the old behavior.
+	local mh, _, mPad, mSpc = GetGrowth(p, false)
+	local ph, _, pPad, pSpc = GetGrowth(p, true)
+	local mSpc2, pSpc2 = mSpc * 2, pSpc * 2
 	local curWidth, curHeight, maxWidth, maxHeight = 0, 0, 0, 0
 	local pCurWidth, pCurHeight, pMaxWidth, pMaxHeight = 0, 0, 0, 0
-	local Padding, Spacing = p.Padding, p.Spacing * 2
 
 	local frameWidth, frameHeight = Grid2Frame:GetFrameSize()
 	for i = 1, self.indexes.spacer do
@@ -604,8 +624,8 @@ function Grid2Layout:UpdateSize()
 			local g = headers[i]
 			local width, height = g:GetWidth(), g:GetHeight()
 			if petType then
-				pCurWidth = pCurWidth + width + Padding
-				pCurHeight = pCurHeight + height + Padding
+				pCurWidth = pCurWidth + width + pPad
+				pCurHeight = pCurHeight + height + pPad
 				if pMaxWidth < width then
 					pMaxWidth = width
 				end
@@ -613,8 +633,8 @@ function Grid2Layout:UpdateSize()
 					pMaxHeight = height
 				end
 			else
-				curWidth = curWidth + width + Padding
-				curHeight = curHeight + height + Padding
+				curWidth = curWidth + width + mPad
+				curHeight = curHeight + height + mPad
 				if maxWidth < width then
 					maxWidth = width
 				end
@@ -625,11 +645,11 @@ function Grid2Layout:UpdateSize()
 		end
 	end
 
-	self.frame:SetWidth(p.horizontal and maxWidth + Spacing or curWidth + Spacing - Padding)
-	self.frame:SetHeight(p.horizontal and curHeight + Spacing - Padding or maxHeight + Spacing)
+	self.frame:SetWidth(mh and maxWidth + mSpc2 or curWidth + mSpc2 - mPad)
+	self.frame:SetHeight(mh and curHeight + mSpc2 - mPad or maxHeight + mSpc2)
 	if usePet then
-		self.petFrame:SetWidth(p.horizontal and pMaxWidth + Spacing or pCurWidth + Spacing - Padding)
-		self.petFrame:SetHeight(p.horizontal and pCurHeight + Spacing - Padding or pMaxHeight + Spacing)
+		self.petFrame:SetWidth(ph and pMaxWidth + pSpc2 or pCurWidth + pSpc2 - pPad)
+		self.petFrame:SetHeight(ph and pCurHeight + pSpc2 - pPad or pMaxHeight + pSpc2)
 	end
 end
 

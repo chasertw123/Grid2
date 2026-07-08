@@ -352,6 +352,9 @@ end
 local function petStyleDisabled()
 	return petPosDisabled() or not Grid2Layout.db.profile.petOwnStyle
 end
+local function petGrowthDisabled()
+	return petPosDisabled() or not Grid2Layout.db.profile.petOwnGrowth
+end
 -- Repaint just the pet container after a style change (it is created lazily; repaint only, no reload).
 local function RefreshPetStyle()
 	local f = Grid2Layout.petFrame
@@ -693,6 +696,109 @@ Grid2Options:AddGeneralOptions("General", "Pet Position", {
 		set = function(_, v)
 			Grid2Layout.db.profile.PetBackgroundTileSize = v
 			RefreshPetStyle()
+		end
+	},
+	petGrowthHeader = {
+		type = "header",
+		order = 60,
+		name = L["Pet Growth"]
+	},
+	petowngrowth = {
+		type = "toggle",
+		width = "full",
+		order = 61,
+		name = L["Use separate pet growth"],
+		desc = L["Let pet groups grow in their own direction/anchor instead of following the main grid."],
+		disabled = petPosDisabled,
+		get = function()
+			return Grid2Layout.db.profile.petOwnGrowth
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.petOwnGrowth = v
+			Grid2Layout:ReloadLayout()
+			if Grid2Options.LayoutTestRefresh then
+				Grid2Options:LayoutTestRefresh()
+			end
+		end
+	},
+	petHorizontal = {
+		type = "toggle",
+		order = 62,
+		name = L["Horizontal groups"],
+		desc = L["Switch between horzontal/vertical groups."],
+		disabled = petGrowthDisabled,
+		get = function()
+			local p = Grid2Layout.db.profile
+			local h = p.petHorizontal
+			if h == nil then h = p.horizontal end
+			return h
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.petHorizontal = v
+			Grid2Layout:ReloadLayout()
+			if Grid2Options.LayoutTestRefresh then
+				Grid2Options:LayoutTestRefresh()
+			end
+		end
+	},
+	petGroupAnchor = {
+		type = "select",
+		order = 63,
+		name = L["Group Anchor"],
+		desc = L["Sets where groups are anchored relative to the layout frame."],
+		disabled = petGrowthDisabled,
+		get = function()
+			local p = Grid2Layout.db.profile
+			return p.petGroupAnchor or p.groupAnchor
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.petGroupAnchor = v
+			Grid2Layout:ReloadLayout()
+			if Grid2Options.LayoutTestRefresh then
+				Grid2Options:LayoutTestRefresh()
+			end
+		end,
+		values = {
+			["TOPLEFT"] = L["TOPLEFT"],
+			["TOPRIGHT"] = L["TOPRIGHT"],
+			["BOTTOMLEFT"] = L["BOTTOMLEFT"],
+			["BOTTOMRIGHT"] = L["BOTTOMRIGHT"]
+		}
+	},
+	petPadding = {
+		type = "range",
+		order = 64,
+		name = L["Padding"],
+		desc = L["Adjust frame padding."],
+		min = 0,
+		max = 20,
+		step = 1,
+		disabled = petGrowthDisabled,
+		get = function()
+			local p = Grid2Layout.db.profile
+			return p.petPadding or p.Padding
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.petPadding = v
+			Grid2Layout:ReloadLayout()
+		end
+	},
+	petSpacing = {
+		type = "range",
+		order = 65,
+		name = L["Spacing"],
+		desc = L["Adjust frame spacing."],
+		min = 0,
+		max = 25,
+		step = 1,
+		disabled = petGrowthDisabled,
+		get = function()
+			local p = Grid2Layout.db.profile
+			return p.petSpacing or p.Spacing
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.petSpacing = v
+			Grid2Layout:ReloadLayout()
 		end
 	}
 })
