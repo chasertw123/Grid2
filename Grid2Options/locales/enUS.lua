@@ -55,6 +55,17 @@ L["Pet Growth"] = true
 L["Use separate pet growth"] = true
 L["Let pet groups grow in their own direction/anchor instead of following the main grid."] = true
 
+L["Grow Direction"] = true
+L["Direction unit frames fill within a group, then the direction new groups wrap."] = true
+L["Down, then right"] = true
+L["Down, then left"] = true
+L["Up, then right"] = true
+L["Up, then left"] = true
+L["Right, then down"] = true
+L["Left, then down"] = true
+L["Right, then up"] = true
+L["Left, then up"] = true
+
 L["Default Font"] = true
 
 L["Invert Bar Color"] = true

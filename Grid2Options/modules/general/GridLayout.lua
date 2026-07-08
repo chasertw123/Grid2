@@ -7,22 +7,58 @@ local order_layout = 20
 local order_display = 30
 local order_anchor = 40
 
+-- "Grow Direction" folds the two underlying layout settings (horizontal + groupAnchor) into one intuitive
+-- control: the direction unit frames fill within a group, then the direction new groups wrap. The keys are
+-- named so the AceConfig dropdown (which sorts select values by key) lists them grouped Down/Left/Right/Up.
+local GROW_DIRS = {                       -- key = { horizontal, groupAnchor }
+	DOWN_RIGHT = { false, "TOPLEFT"     },
+	DOWN_LEFT  = { false, "TOPRIGHT"    },
+	UP_RIGHT   = { false, "BOTTOMLEFT"  },
+	UP_LEFT    = { false, "BOTTOMRIGHT" },
+	RIGHT_DOWN = { true,  "TOPLEFT"     },
+	LEFT_DOWN  = { true,  "TOPRIGHT"    },
+	RIGHT_UP   = { true,  "BOTTOMLEFT"  },
+	LEFT_UP    = { true,  "BOTTOMRIGHT" },
+}
+local GROW_DIR_VALUES = {
+	DOWN_RIGHT = L["Down, then right"],
+	DOWN_LEFT  = L["Down, then left"],
+	UP_RIGHT   = L["Up, then right"],
+	UP_LEFT    = L["Up, then left"],
+	RIGHT_DOWN = L["Right, then down"],
+	LEFT_DOWN  = L["Left, then down"],
+	RIGHT_UP   = L["Right, then up"],
+	LEFT_UP    = L["Left, then up"],
+}
+-- reverse lookup: current (horizontal, groupAnchor) -> the matching direction key
+local function GrowDirKey(horizontal, groupAnchor)
+	horizontal = horizontal and true or false
+	for key, v in pairs(GROW_DIRS) do
+		if v[1] == horizontal and v[2] == groupAnchor then return key end
+	end
+	return "DOWN_RIGHT"
+end
+
 Grid2Options:AddGeneralOptions("General", "Layout Settings", {
-	horizontal = {
-		type = "toggle",
-		name = L["Horizontal groups"],
-		desc = L["Switch between horzontal/vertical groups."],
+	growdirection = {
+		type = "select",
+		name = L["Grow Direction"],
+		desc = L["Direction unit frames fill within a group, then the direction new groups wrap."],
 		order = order_layout + 4,
 		get = function()
-			return Grid2Layout.db.profile.horizontal
+			local p = Grid2Layout.db.profile
+			return GrowDirKey(p.horizontal, p.groupAnchor)
 		end,
-		set = function()
-			Grid2Layout.db.profile.horizontal = not Grid2Layout.db.profile.horizontal
+		set = function(_, v)
+			local d = GROW_DIRS[v]
+			local p = Grid2Layout.db.profile
+			p.horizontal, p.groupAnchor = d[1], d[2]
 			Grid2Layout:ReloadLayout()
 			if Grid2Options.LayoutTestRefresh then
 				Grid2Options:LayoutTestRefresh()
 			end
-		end
+		end,
+		values = GROW_DIR_VALUES
 	},
 	lock = {
 		type = "toggle",
@@ -295,28 +331,6 @@ Grid2Options:AddGeneralOptions("General", "Layout Settings", {
 			Grid2Layout.db.profile.PosY = v
 			Grid2Layout:RestorePosition()
 		end
-	},
-	groupanchor = {
-		type = "select",
-		name = L["Group Anchor"],
-		desc = L["Sets where groups are anchored relative to the layout frame."],
-		order = order_anchor + 2,
-		get = function()
-			return Grid2Layout.db.profile.groupAnchor
-		end,
-		set = function(_, v)
-			Grid2Layout.db.profile.groupAnchor = v
-			Grid2Layout:ReloadLayout()
-			if Grid2Options.LayoutTestRefresh then
-				Grid2Options:LayoutTestRefresh()
-			end
-		end,
-		values = {
-			["TOPLEFT"] = L["TOPLEFT"],
-			["TOPRIGHT"] = L["TOPRIGHT"],
-			["BOTTOMLEFT"] = L["BOTTOMLEFT"],
-			["BOTTOMRIGHT"] = L["BOTTOMRIGHT"]
-		}
 	},
 	clamp = {
 		type = "toggle",
@@ -721,49 +735,28 @@ Grid2Options:AddGeneralOptions("Pets", "Pet Position", {
 			end
 		end
 	},
-	petHorizontal = {
-		type = "toggle",
+	petGrowDirection = {
+		type = "select",
 		order = 62,
-		name = L["Horizontal groups"],
-		desc = L["Switch between horzontal/vertical groups."],
+		name = L["Grow Direction"],
+		desc = L["Direction unit frames fill within a group, then the direction new groups wrap."],
 		disabled = petGrowthDisabled,
 		get = function()
 			local p = Grid2Layout.db.profile
 			local h = p.petHorizontal
 			if h == nil then h = p.horizontal end
-			return h
+			return GrowDirKey(h, p.petGroupAnchor or p.groupAnchor)
 		end,
 		set = function(_, v)
-			Grid2Layout.db.profile.petHorizontal = v
-			Grid2Layout:ReloadLayout()
-			if Grid2Options.LayoutTestRefresh then
-				Grid2Options:LayoutTestRefresh()
-			end
-		end
-	},
-	petGroupAnchor = {
-		type = "select",
-		order = 63,
-		name = L["Group Anchor"],
-		desc = L["Sets where groups are anchored relative to the layout frame."],
-		disabled = petGrowthDisabled,
-		get = function()
+			local d = GROW_DIRS[v]
 			local p = Grid2Layout.db.profile
-			return p.petGroupAnchor or p.groupAnchor
-		end,
-		set = function(_, v)
-			Grid2Layout.db.profile.petGroupAnchor = v
+			p.petHorizontal, p.petGroupAnchor = d[1], d[2]
 			Grid2Layout:ReloadLayout()
 			if Grid2Options.LayoutTestRefresh then
 				Grid2Options:LayoutTestRefresh()
 			end
 		end,
-		values = {
-			["TOPLEFT"] = L["TOPLEFT"],
-			["TOPRIGHT"] = L["TOPRIGHT"],
-			["BOTTOMLEFT"] = L["BOTTOMLEFT"],
-			["BOTTOMRIGHT"] = L["BOTTOMRIGHT"]
-		}
+		values = GROW_DIR_VALUES
 	},
 	petPadding = {
 		type = "range",
