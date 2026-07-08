@@ -381,6 +381,11 @@ Grid2Options:AddGeneralOptions("General", "Pet Position", {
 		end,
 		set = function(_, v)
 			Grid2Layout.db.profile.petAnchor = v
+			-- Re-express the stored offset against the new anchor from the frame's current on-screen rect
+			-- so it stays put visually, mirroring the main-frame Layout Anchor handler above.
+			if Grid2Layout.petFrame then
+				Grid2Layout:SavePosition(Grid2Layout.petFrame)
+			end
 			Grid2Layout:RestorePosition()
 		end,
 		values = {

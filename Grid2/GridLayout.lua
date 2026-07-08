@@ -327,6 +327,10 @@ function Grid2Layout:CreatePetFrame()
 	f:EnableMouse(not p.ClickThrough)
 	self:UpdateTextures(f)
 	self:UpdateColor(f)
+	-- Position from the saved DB coords now, mirroring how OnModuleEnable positions the main frame before
+	-- its first Scale/SavePosition. Without this, the first SavePosition(petFrame) inside Scale would read
+	-- the CENTER/zero-size creation anchor and overwrite PetPosX/PetPosY with screen-center coordinates.
+	self:RestoreFramePosition(f)
 end
 
 -- Show/hide feedback for the options master toggle (real creation is guaranteed by LoadLayout, out of combat).
