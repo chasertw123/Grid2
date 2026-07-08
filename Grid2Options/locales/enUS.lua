@@ -38,6 +38,14 @@ L["Pet Scale"] = true
 L["Adjust the pet container scale."] = true
 L["Resets the pet container's position and anchor."] = true
 
+L["Pet Frame Lock"] = true
+L["Lock pet frame separately"] = true
+L["Give the pet container its own lock and click-through instead of following the main grid."] = true
+L["Pet frame lock"] = true
+L["Locks/unlocks the pet container for movement."] = true
+L["Click through the pet frame"] = true
+L["Allows mouse click through the pet container."] = true
+
 L["Default Font"] = true
 
 L["Invert Bar Color"] = true

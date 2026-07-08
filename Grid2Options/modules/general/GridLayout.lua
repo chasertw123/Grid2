@@ -47,7 +47,7 @@ Grid2Options:AddGeneralOptions("General", "Layout Settings", {
 		set = function()
 			local v = not Grid2Layout.db.profile.ClickThrough
 			Grid2Layout.db.profile.ClickThrough = v
-			Grid2Layout.frame:EnableMouse(not v)
+			Grid2Layout:ApplyClickThrough()
 		end,
 		disabled = function()
 			return not Grid2Layout.db.profile.FrameLock
@@ -496,6 +496,69 @@ Grid2Options:AddGeneralOptions("General", "Pet Position", {
 		disabled = petPosDisabled,
 		func = function()
 			Grid2Layout:ResetPetPosition()
+		end
+	},
+	petLockHeader = {
+		type = "header",
+		order = 20,
+		name = L["Pet Frame Lock"]
+	},
+	petownlock = {
+		type = "toggle",
+		width = "full",
+		order = 21,
+		name = L["Lock pet frame separately"],
+		desc = L["Give the pet container its own lock and click-through instead of following the main grid."],
+		disabled = petPosDisabled,
+		get = function()
+			return Grid2Layout.db.profile.petOwnLock
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.petOwnLock = v
+			Grid2Layout:ApplyClickThrough()
+		end
+	},
+	petlock = {
+		type = "toggle",
+		order = 22,
+		name = L["Pet frame lock"],
+		desc = L["Locks/unlocks the pet container for movement."],
+		disabled = function()
+			return petPosDisabled() or not Grid2Layout.db.profile.petOwnLock
+		end,
+		get = function()
+			local p = Grid2Layout.db.profile
+			local v = p.PetFrameLock
+			if v == nil then v = p.FrameLock end
+			return v
+		end,
+		set = function()
+			Grid2Layout:PetFrameLock()
+		end
+	},
+	petclickthrough = {
+		type = "toggle",
+		order = 23,
+		name = L["Click through the pet frame"],
+		desc = L["Allows mouse click through the pet container."],
+		disabled = function()
+			local p = Grid2Layout.db.profile
+			local fl = p.PetFrameLock
+			if fl == nil then fl = p.FrameLock end
+			return petPosDisabled() or not p.petOwnLock or not fl
+		end,
+		get = function()
+			local p = Grid2Layout.db.profile
+			local v = p.PetClickThrough
+			if v == nil then v = p.ClickThrough end
+			return v
+		end,
+		set = function()
+			local p = Grid2Layout.db.profile
+			local cur = p.PetClickThrough
+			if cur == nil then cur = p.ClickThrough end
+			p.PetClickThrough = not cur
+			Grid2Layout:ApplyClickThrough()
 		end
 	}
 })

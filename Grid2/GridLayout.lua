@@ -167,7 +167,10 @@ Grid2Layout.defaultDB = {
 		PetPosY = -400,
 		petClamp = true,
 		petOwnScale = false,
-		PetScaleSize = 1
+		PetScaleSize = 1,
+		-- (deferred feature) independent pet frame-lock; false => pet follows the shared FrameLock/ClickThrough.
+		-- PetFrameLock / PetClickThrough are intentionally absent => inherit the main values until overridden.
+		petOwnLock = false
 	}
 }
 
@@ -245,7 +248,7 @@ end
 
 function Grid2Layout:StartMoveFrame(button, frame)
 	frame = frame or self.frame
-	if not self.db.profile.FrameLock and button == "LeftButton" then
+	if not self:GetFrameLockState(frame) and button == "LeftButton" then
 		frame:StartMoving()
 		frame.isMoving = true
 	end
@@ -261,6 +264,34 @@ function Grid2Layout:StopMoveFrame(frame)
 	end
 end
 
+-- Resolve the effective lock + click-through for a frame. The pet frame uses its own values only when
+-- petOwnLock is on (each falling back to the main value when unset); every other case uses the shared
+-- FrameLock/ClickThrough, so with the feature off this returns exactly the old values.
+function Grid2Layout:GetFrameLockState(frame)
+	local p = self.db.profile
+	local fl, ct
+	if frame == self.petFrame and p.petOwnLock then
+		fl = p.PetFrameLock
+		if fl == nil then fl = p.FrameLock end
+		ct = p.PetClickThrough
+		if ct == nil then ct = p.ClickThrough end
+	else
+		fl, ct = p.FrameLock, p.ClickThrough
+	end
+	if not fl then ct = false end -- click-through only applies while locked, so an unlocked frame stays draggable
+	return fl, ct
+end
+
+-- Apply each frame's resolved click-through to its mouse-enabled state.
+function Grid2Layout:ApplyClickThrough()
+	local _, ct = self:GetFrameLockState(self.frame)
+	self.frame:EnableMouse(not ct)
+	if self.petFrame then
+		local _, pct = self:GetFrameLockState(self.petFrame)
+		self.petFrame:EnableMouse(not pct)
+	end
+end
+
 -- nil:toggle, false:disable movement, true:enable movement
 function Grid2Layout:FrameLock(locked)
 	local p = self.db.profile
@@ -269,11 +300,26 @@ function Grid2Layout:FrameLock(locked)
 	else
 		p.FrameLock = locked
 	end
-	if (not p.FrameLock and p.ClickThrough) then
+	if not p.FrameLock and p.ClickThrough then
 		p.ClickThrough = false
-		self.frame:EnableMouse(true)
-		if self.petFrame then self.petFrame:EnableMouse(true) end
 	end
+	self:ApplyClickThrough()
+end
+
+-- Independent pet lock toggle (mirrors FrameLock for the pet frame; PetFrameLock inherits FrameLock when unset).
+function Grid2Layout:PetFrameLock(locked)
+	local p = self.db.profile
+	if locked == nil then
+		local cur = p.PetFrameLock
+		if cur == nil then cur = p.FrameLock end
+		p.PetFrameLock = not cur
+	else
+		p.PetFrameLock = locked
+	end
+	if not p.PetFrameLock and p.PetClickThrough then
+		p.PetClickThrough = false
+	end
+	self:ApplyClickThrough()
 end
 
 --{{{ ConfigMode support
@@ -281,8 +327,10 @@ CONFIGMODE_CALLBACKS = CONFIGMODE_CALLBACKS or {}
 CONFIGMODE_CALLBACKS["Grid2"] = function(action)
 	if (action == "ON") then
 		Grid2Layout:FrameLock(false)
+		if Grid2Layout.db.profile.petOwnLock then Grid2Layout:PetFrameLock(false) end
 	elseif (action == "OFF") then
 		Grid2Layout:FrameLock(true)
+		if Grid2Layout.db.profile.petOwnLock then Grid2Layout:PetFrameLock(true) end
 	end
 end
 --}}}
@@ -324,7 +372,8 @@ function Grid2Layout:CreatePetFrame()
 	f:SetScript("OnMouseDown", function(_, button) self:StartMoveFrame(button, f) end)
 	f:SetFrameStrata(p.FrameStrata or "MEDIUM")
 	f:SetFrameLevel(0)
-	f:EnableMouse(not p.ClickThrough)
+	local _, petCt = self:GetFrameLockState(f)
+	f:EnableMouse(not petCt)
 	self:UpdateTextures(f)
 	self:UpdateColor(f)
 	-- Position from the saved DB coords now, mirroring how OnModuleEnable positions the main frame before
@@ -746,8 +795,7 @@ function Grid2Layout:SetFrameLock(FrameLock, ClickThrough)
 		ClickThrough = false
 	end
 	p.ClickThrough = ClickThrough
-	self.frame:EnableMouse(not ClickThrough)
-	if self.petFrame then self.petFrame:EnableMouse(not ClickThrough) end
+	self:ApplyClickThrough()
 end
 
 function Grid2Layout:AddCustomLayouts()
