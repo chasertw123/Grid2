@@ -65,7 +65,10 @@ do
 end
 
 -- Lazily save a container's scale and apply the previewed layout's scale (main formula, or the pet formula for
--- the pet frame). Idempotent on savedScale. Save/restore position keeps it put. Unchanged.
+-- the pet frame). Idempotent on savedScale. Re-anchors with RestoreFramePosition, which only READS the stored
+-- PosX/PosY -- the preview must NEVER call SavePosition: that recomputes position from the (scaled/resized)
+-- preview rect and PERSISTS it, permanently changing the user's saved layout position. Testing a layout must
+-- never mutate settings.
 local function EnsureScaled(grid)
 	if grid.savedScale ~= nil then return end
 	local f = grid.container
@@ -75,18 +78,16 @@ local function EnsureScaled(grid)
 	local base = p.ScaleSize * ls
 	local scale = grid.isPet and (p.petOwnScale and (p.PetScaleSize * ls) or base) or base
 	grid.savedScale = f:GetScale()
-	Grid2Layout:SavePosition(f)
 	f:SetScale(scale)
-	Grid2Layout:RestoreFramePosition(f)
+	Grid2Layout:RestoreFramePosition(f)   -- read-only re-anchor at the preview scale
 end
 
 local function RestoreScale(grid)
 	if grid.savedScale == nil then return end
 	local f = grid.container
 	if f then
-		Grid2Layout:SavePosition(f)
 		f:SetScale(grid.savedScale)
-		Grid2Layout:RestoreFramePosition(f)
+		Grid2Layout:RestoreFramePosition(f)   -- read-only re-anchor back at the original scale
 	end
 	grid.savedScale = nil
 end
