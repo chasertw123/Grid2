@@ -157,6 +157,16 @@ function GridFramePrototype:Layout()
 	-- set size
 	if not InCombatLockdown() then
 		self:SetSize(w, h)
+		-- Keep the secure header's per-child "initial" size in sync with the size we just applied. The header
+		-- applies initial-width/initial-height to a child (ApplyUnitButtonConfiguration in Blizzard's
+		-- SecureTemplates.lua) ONLY when it (re)creates that child. Left at the stale registration-time value
+		-- (baked from the PLAYER size, because pet.enabled was still false the first time the pet frames were
+		-- created) the header snaps pet children back to the player size on the next creation / ForceFramesCreation
+		-- / ReloadLayout pass -- which is why a per-pet size only "took" after also enabling the separate pet
+		-- container (that path runs a full ReloadLayout). Refreshing them here, the single place that already
+		-- resolves the correct player-or-pet size, keeps both correct without a ReloadLayout.
+		self:SetAttribute("initial-width", w)
+		self:SetAttribute("initial-height", h)
 	end
 	-- highlight texture
 	self:SetHighlightTexture(dbx.mouseoverHighlight and "Interface\\QuestFrame\\UI-QuestTitleHighlight" or nil)
