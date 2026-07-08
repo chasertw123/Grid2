@@ -5,6 +5,11 @@ local pairs, ipairs, next = pairs, ipairs, next
 
 --{{{ Frame config function for secure headers
 local function GridHeader_InitialConfigFunction(self, name)
+	-- Stamp pet-ness from the owning header (set in GridLayoutHeaderClass.new) before the frame is
+	-- registered, so its initial size and appearance are chosen correctly on first paint. Stable for
+	-- the frame's life; it never flips on vehicle swaps, so no unit-refresh hook needs to touch it.
+	local header = self:GetParent()
+	self.isPet = header and header.isPetHeader or nil
 	Grid2Frame:RegisterFrame(self)
 	RegisterUnitWatch(self)
 	self:SetAttribute("*type1", "target")
@@ -35,6 +40,7 @@ local GridLayoutHeaderClass = {
 			frame = CreateFrame("Frame", "Grid2LayoutHeader" .. NUM_HEADERS, Grid2Layout.frame, assert(SecureHeaderTemplates[type]))
 			frame:SetAttribute("template", _G.ClickCastHeader and "ClickCastUnitTemplate,SecureUnitButtonTemplate" or "Grid2SecureUnitButtonTemplate")
 			frame.initialConfigFunction = GridHeader_InitialConfigFunction
+			frame.isPetHeader = (type == "raidpet" or type == "partypet") or nil
 		end
 		for name, func in pairs(self.prototype) do
 			frame[name] = func

@@ -178,6 +178,180 @@ Grid2Options:AddGeneralOptions("General", "Frames", {
 	}
 })
 
+--[[ Pet frame appearance overrides ]]--
+-- Every setter writes into Grid2Frame.db.profile.pet and reuses the exact refresh sequence the player
+-- controls above use. Getters show the effective value: the pet override, or the player value when the
+-- pet key is unset. All controls except the master toggle are disabled until the override is enabled.
+local function petEnabled()
+	return Grid2Frame.db.profile.pet.enabled
+end
+local function petDisabled()
+	return not Grid2Frame.db.profile.pet.enabled
+end
+local function petDisabledCombat()
+	return (not Grid2Frame.db.profile.pet.enabled) or InCombatLockdown()
+end
+-- Re-lay out frames after a pet size/enable change (same calls the player width/height setters make).
+local function petRefreshSize()
+	Grid2Frame:LayoutFrames()
+	Grid2Layout:UpdateHeadersSize()
+	Grid2Layout:UpdateSize()
+	if Grid2Options.LayoutTestRefresh then
+		Grid2Options:LayoutTestRefresh()
+	end
+end
+
+Grid2Options:AddGeneralOptions("General", "Pet Frames", {
+	petEnabled = {
+		type = "toggle",
+		order = 5,
+		width = "full",
+		name = L["Customize pet frames separately"],
+		desc = L["When enabled, pet frames use these settings instead of the normal frame settings."],
+		get = petEnabled,
+		set = function(_, v)
+			Grid2Frame.db.profile.pet.enabled = v
+			petRefreshSize()
+		end
+	},
+	petTexture = {
+		type = "select",
+		dialogControl = "LSM30_Statusbar",
+		order = 20,
+		name = L["Background Texture"],
+		desc = L["Select the frame background texture."],
+		disabled = petDisabled,
+		get = function()
+			local p = Grid2Frame.db.profile
+			return p.pet.frameTexture or p.frameTexture or "Gradient"
+		end,
+		set = function(_, v)
+			Grid2Frame.db.profile.pet.frameTexture = v
+			Grid2Frame:LayoutFrames()
+		end,
+		values = AceGUIWidgetLSMlists.statusbar
+	},
+	petWidth = {
+		type = "range",
+		order = 50,
+		name = L["Frame Width"],
+		desc = L["Adjust the width of each unit's frame."],
+		min = 10,
+		max = 150,
+		step = 1,
+		disabled = petDisabledCombat,
+		get = function()
+			local p = Grid2Frame.db.profile
+			return p.pet.frameWidth or p.frameWidth
+		end,
+		set = function(_, v)
+			Grid2Frame.db.profile.pet.frameWidth = v
+			petRefreshSize()
+		end
+	},
+	petHeight = {
+		type = "range",
+		order = 60,
+		name = L["Frame Height"],
+		desc = L["Adjust the height of each unit's frame."],
+		min = 10,
+		max = 100,
+		step = 1,
+		disabled = petDisabledCombat,
+		get = function()
+			local p = Grid2Frame.db.profile
+			return p.pet.frameHeight or p.frameHeight
+		end,
+		set = function(_, v)
+			Grid2Frame.db.profile.pet.frameHeight = v
+			petRefreshSize()
+		end
+	},
+	petBorderDistance = {
+		type = "range",
+		order = 70,
+		name = L["Inner Border Size"],
+		desc = L["Sets the size of the inner border of each unit frame"],
+		min = -16,
+		max = 16,
+		step = 1,
+		disabled = petDisabled,
+		get = function()
+			local p = Grid2Frame.db.profile
+			return p.pet.frameBorderDistance or p.frameBorderDistance
+		end,
+		set = function(_, v)
+			Grid2Frame.db.profile.pet.frameBorderDistance = v
+			Grid2Frame:LayoutFrames()
+		end
+	},
+	petColorFrame = {
+		type = "color",
+		order = 80,
+		name = L["Inner Border Color"],
+		desc = L["Sets the color of the inner border of each unit frame"],
+		hasAlpha = true,
+		disabled = petDisabled,
+		get = function()
+			local p = Grid2Frame.db.profile
+			local c = p.pet.frameColor or p.frameColor
+			return c.r, c.g, c.b, c.a
+		end,
+		set = function(_, r, g, b, a)
+			local pet = Grid2Frame.db.profile.pet
+			local c = pet.frameColor
+			if not c then
+				c = {}
+				pet.frameColor = c
+			end
+			c.r, c.g, c.b, c.a = r, g, b, a
+			Grid2Frame:LayoutFrames()
+		end
+	},
+	petColorContent = {
+		type = "color",
+		order = 90,
+		name = L["Background Color"],
+		desc = L["Sets the background color of each unit frame"],
+		hasAlpha = true,
+		disabled = petDisabled,
+		get = function()
+			local p = Grid2Frame.db.profile
+			local c = p.pet.frameContentColor or p.frameContentColor
+			return c.r, c.g, c.b, c.a
+		end,
+		set = function(_, r, g, b, a)
+			local pet = Grid2Frame.db.profile.pet
+			local c = pet.frameContentColor
+			if not c then
+				c = {}
+				pet.frameContentColor = c
+			end
+			c.r, c.g, c.b, c.a = r, g, b, a
+			Grid2Frame:LayoutFrames()
+		end
+	},
+	petMouseoverHighlight = {
+		type = "toggle",
+		order = 100,
+		name = L["Mouseover Highlight"],
+		desc = L["Toggle mouseover highlight."],
+		disabled = petDisabled,
+		get = function()
+			local p = Grid2Frame.db.profile
+			local v = p.pet.mouseoverHighlight
+			if v == nil then
+				v = p.mouseoverHighlight
+			end
+			return v
+		end,
+		set = function(_, v)
+			Grid2Frame.db.profile.pet.mouseoverHighlight = v
+			Grid2Frame:LayoutFrames()
+		end
+	}
+})
+
 -- Force GridLayoutHeaders size recalculation. Called from Grid2Options when frames width or height changes.
 -- Without this, UpdateSize calculates wrong layout size because g:GetWidth/g:GetHeight dont return correct values.
 -- TODO: A better way to fix this issue ?

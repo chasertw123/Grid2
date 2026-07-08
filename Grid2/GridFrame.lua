@@ -63,6 +63,10 @@ end
 
 -- {{ Precalculated backdrop table, shared by all frames
 local frameBackdrop
+-- Pet appearance override: the player profile shallow-merged with db.profile.pet overrides. Stays nil
+-- unless the pet override is enabled, so player frames (and pet frames with the override off) use the
+-- normal path unchanged. Rebuilt in Grid2Frame:UpdatePetProfile alongside frameBackdrop.
+local petProfile
 -- }}
 
 --{{{ Grid2Frame script handlers
@@ -125,7 +129,10 @@ local function GridFrame_Init(frame, width, height)
 end
 
 function GridFramePrototype:Layout()
-	local dbx = Grid2Frame.db.profile
+	-- Pet frames read the merged pet profile when the override is enabled; otherwise (and for all player
+	-- frames) petProfile is nil and this is the original Grid2Frame.db.profile. The rest of the function
+	-- is unchanged: it reads every appearance value through dbx, so pet values flow through automatically.
+	local dbx = (self.isPet and petProfile) or Grid2Frame.db.profile
 	local w = dbx.frameWidth
 	local h = dbx.frameHeight
 	-- external border controlled by the border indicator
@@ -196,7 +203,10 @@ Grid2Frame.defaultDB = {
 		textOrientation = "VERTICAL",
 		intensity = 0.5,
 		blinkType = "Flash",
-		blinkFrequency = 2
+		blinkFrequency = 2,
+		-- Pet frame appearance overrides. enabled=false => pets look exactly like players. When enabled,
+		-- only the keys the user changes are stored here; everything else falls back to the player value.
+		pet = {enabled = false}
 	}
 }
 
@@ -228,7 +238,7 @@ function Grid2Frame:OnModuleUpdate()
 end
 
 function Grid2Frame:RegisterFrame(frame)
-	GridFrame_Init(frame, self:GetFrameSize())
+	GridFrame_Init(frame, self:GetFrameSize(frame.isPet))
 	self.registeredFrames[frame:GetName()] = frame
 end
 
@@ -254,6 +264,28 @@ function Grid2Frame:UpdateBackdrop()
 		true, -- tile
 		16 -- tileSize
 	)
+	self:UpdatePetProfile()
+end
+
+-- Rebuild the merged pet appearance profile. When db.profile.pet.enabled is set, petProfile becomes the
+-- player profile overlaid with the pet overrides (any key the user has not overridden falls back to the
+-- player value); otherwise it is nil and pet frames use the normal player path. Rebuilt here so it
+-- refreshes on every settings change, since UpdateBackdrop runs from OnModuleEnable and LayoutFrames.
+function Grid2Frame:UpdatePetProfile()
+	local p = self.db.profile
+	local pet = p.pet
+	if pet and pet.enabled then
+		local eff = {}
+		for k, v in pairs(p) do
+			if k ~= "pet" then eff[k] = v end
+		end
+		for k, v in pairs(pet) do
+			if k ~= "enabled" then eff[k] = v end
+		end
+		petProfile = eff
+	else
+		petProfile = nil
+	end
 end
 
 function Grid2Frame:LayoutFrames()
@@ -264,8 +296,8 @@ function Grid2Frame:LayoutFrames()
 	self:SendMessage("Grid_UpdateLayoutSize")
 end
 
-function Grid2Frame:GetFrameSize()
-	local p = self.db.profile
+function Grid2Frame:GetFrameSize(isPet)
+	local p = (isPet and petProfile) or self.db.profile
 	return p.frameWidth, p.frameHeight
 end
 

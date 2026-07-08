@@ -13,6 +13,10 @@ L["indicators"] = "Indicators"
 L["Frames"] = true
 L["frame"] = true
 
+L["Pet Frames"] = true
+L["Customize pet frames separately"] = true
+L["When enabled, pet frames use these settings instead of the normal frame settings."] = true
+
 L["Default Font"] = true
 
 L["Invert Bar Color"] = true
