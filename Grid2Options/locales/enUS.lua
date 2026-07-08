@@ -17,6 +17,27 @@ L["Pet Frames"] = true
 L["Customize pet frames separately"] = true
 L["When enabled, pet frames use these settings instead of the normal frame settings."] = true
 
+L["Horizontal Position"] = true
+L["Vertical Position"] = true
+L["Adjust the horizontal position of the Grid frame."] = true
+L["Adjust the vertical position of the Grid frame."] = true
+L["Pet Position"] = true
+L["Position pet frames separately"] = true
+L["Route pet frames to their own movable container, positioned independently of the main grid."] = true
+L["Pet Layout Anchor"] = true
+L["Sets where the pet container is anchored relative to the screen."] = true
+L["Pet Horizontal Position"] = true
+L["Adjust the horizontal position of the pet container."] = true
+L["Pet Vertical Position"] = true
+L["Adjust the vertical position of the pet container."] = true
+L["Pet Clamped to screen"] = true
+L["Toggle whether to permit moving the pet container off screen."] = true
+L["Use a separate pet scale"] = true
+L["Scale the pet container independently of the main grid."] = true
+L["Pet Scale"] = true
+L["Adjust the pet container scale."] = true
+L["Resets the pet container's position and anchor."] = true
+
 L["Default Font"] = true
 
 L["Invert Bar Color"] = true

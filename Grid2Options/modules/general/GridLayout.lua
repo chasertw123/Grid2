@@ -262,6 +262,40 @@ Grid2Options:AddGeneralOptions("General", "Layout Settings", {
 			["BOTTOMRIGHT"] = L["BOTTOMRIGHT"]
 		}
 	},
+	posx = {
+		type = "range",
+		name = L["Horizontal Position"],
+		desc = L["Adjust the horizontal position of the Grid frame."],
+		order = order_anchor + 1.1,
+		softMin = -2048,
+		softMax = 2048,
+		step = 1,
+		bigStep = 5,
+		get = function()
+			return floor(Grid2Layout.db.profile.PosX + 0.5)
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.PosX = v
+			Grid2Layout:RestorePosition()
+		end
+	},
+	posy = {
+		type = "range",
+		name = L["Vertical Position"],
+		desc = L["Adjust the vertical position of the Grid frame."],
+		order = order_anchor + 1.2,
+		softMin = -2048,
+		softMax = 2048,
+		step = 1,
+		bigStep = 5,
+		get = function()
+			return floor(Grid2Layout.db.profile.PosY + 0.5)
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.PosY = v
+			Grid2Layout:RestorePosition()
+		end
+	},
 	groupanchor = {
 		type = "select",
 		name = L["Group Anchor"],
@@ -305,6 +339,158 @@ Grid2Options:AddGeneralOptions("General", "Layout Settings", {
 		order = order_anchor + 4,
 		func = function()
 			Grid2Layout:ResetPosition()
+		end
+	}
+})
+
+--[[ Pet Position Section ]]--
+-- Route pet frames to a separate, independently-positionable container. OFF by default (pets stay in the
+-- main grid). Every non-master control is disabled until the feature is enabled.
+local function petPosDisabled()
+	return not Grid2Layout.db.profile.petEnabled
+end
+
+Grid2Options:AddGeneralOptions("General", "Pet Position", {
+	petEnabled = {
+		type = "toggle",
+		width = "full",
+		order = 1,
+		name = L["Position pet frames separately"],
+		desc = L["Route pet frames to their own movable container, positioned independently of the main grid."],
+		disabled = InCombatLockdown,
+		get = function()
+			return Grid2Layout.db.profile.petEnabled
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.petEnabled = v
+			Grid2Layout:SetupPetFrame()
+			Grid2Layout:ReloadLayout()
+			if Grid2Options.LayoutTestRefresh then
+				Grid2Options:LayoutTestRefresh()
+			end
+		end
+	},
+	petanchor = {
+		type = "select",
+		order = 2,
+		name = L["Pet Layout Anchor"],
+		desc = L["Sets where the pet container is anchored relative to the screen."],
+		disabled = petPosDisabled,
+		get = function()
+			return Grid2Layout.db.profile.petAnchor
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.petAnchor = v
+			Grid2Layout:RestorePosition()
+		end,
+		values = {
+			["CENTER"] = L["CENTER"],
+			["TOP"] = L["TOP"],
+			["BOTTOM"] = L["BOTTOM"],
+			["LEFT"] = L["LEFT"],
+			["RIGHT"] = L["RIGHT"],
+			["TOPLEFT"] = L["TOPLEFT"],
+			["TOPRIGHT"] = L["TOPRIGHT"],
+			["BOTTOMLEFT"] = L["BOTTOMLEFT"],
+			["BOTTOMRIGHT"] = L["BOTTOMRIGHT"]
+		}
+	},
+	petposx = {
+		type = "range",
+		order = 3,
+		name = L["Pet Horizontal Position"],
+		desc = L["Adjust the horizontal position of the pet container."],
+		softMin = -2048,
+		softMax = 2048,
+		step = 1,
+		bigStep = 5,
+		disabled = petPosDisabled,
+		get = function()
+			return floor(Grid2Layout.db.profile.PetPosX + 0.5)
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.PetPosX = v
+			Grid2Layout:RestorePosition()
+		end
+	},
+	petposy = {
+		type = "range",
+		order = 4,
+		name = L["Pet Vertical Position"],
+		desc = L["Adjust the vertical position of the pet container."],
+		softMin = -2048,
+		softMax = 2048,
+		step = 1,
+		bigStep = 5,
+		disabled = petPosDisabled,
+		get = function()
+			return floor(Grid2Layout.db.profile.PetPosY + 0.5)
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.PetPosY = v
+			Grid2Layout:RestorePosition()
+		end
+	},
+	petclamp = {
+		type = "toggle",
+		order = 5,
+		name = L["Pet Clamped to screen"],
+		desc = L["Toggle whether to permit moving the pet container off screen."],
+		disabled = petPosDisabled,
+		get = function()
+			return Grid2Layout.db.profile.petClamp
+		end,
+		set = function()
+			local v = not Grid2Layout.db.profile.petClamp
+			Grid2Layout.db.profile.petClamp = v
+			if Grid2Layout.petFrame then
+				Grid2Layout.petFrame:SetClampedToScreen(v)
+			end
+		end
+	},
+	petownscale = {
+		type = "toggle",
+		order = 6,
+		name = L["Use a separate pet scale"],
+		desc = L["Scale the pet container independently of the main grid."],
+		disabled = petPosDisabled,
+		get = function()
+			return Grid2Layout.db.profile.petOwnScale
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.petOwnScale = v
+			Grid2Layout:Scale()
+		end
+	},
+	petscale = {
+		type = "range",
+		order = 7,
+		name = L["Pet Scale"],
+		desc = L["Adjust the pet container scale."],
+		min = 0.5,
+		max = 2.0,
+		step = 0.05,
+		isPercent = true,
+		disabled = function()
+			return petPosDisabled() or not Grid2Layout.db.profile.petOwnScale
+		end,
+		get = function()
+			return Grid2Layout.db.profile.PetScaleSize
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.PetScaleSize = v
+			Grid2Layout:Scale()
+		end
+	},
+	petreset = {
+		type = "execute",
+		width = "half",
+		order = 8,
+		name = L["Reset"],
+		desc = L["Resets the pet container's position and anchor."],
+		disabled = petPosDisabled,
+		func = function()
+			Grid2Layout:ResetPetPosition()
 		end
 	}
 })

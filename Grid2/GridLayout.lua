@@ -159,7 +159,15 @@ Grid2Layout.defaultDB = {
 		anchor = "TOPLEFT",
 		groupAnchor = "TOPLEFT",
 		PosX = 500,
-		PosY = -200
+		PosY = -200,
+		-- Separate pet container. petEnabled=false => pet frames flow inside the main grid exactly as before.
+		petEnabled = false,
+		petAnchor = "TOPLEFT",
+		PetPosX = 500,
+		PetPosY = -400,
+		petClamp = true,
+		petOwnScale = false,
+		PetScaleSize = 1
 	}
 }
 
@@ -211,6 +219,7 @@ function Grid2Layout:OnModuleDisable()
 	self:UnregisterMessage("Grid_UpdateLayoutSize", "UpdateSize")
 	self:UnregisterEvent("PLAYER_REGEN_ENABLED")
 	self.frame:Hide()
+	if self.petFrame then self.petFrame:Hide() end
 end
 
 --{{{ Event handlers
@@ -234,18 +243,20 @@ end
 
 --}}}
 
-function Grid2Layout:StartMoveFrame(button)
+function Grid2Layout:StartMoveFrame(button, frame)
+	frame = frame or self.frame
 	if not self.db.profile.FrameLock and button == "LeftButton" then
-		self.frame:StartMoving()
-		self.frame.isMoving = true
+		frame:StartMoving()
+		frame.isMoving = true
 	end
 end
 
-function Grid2Layout:StopMoveFrame()
-	if self.frame.isMoving then
-		self.frame:StopMovingOrSizing()
-		self:SavePosition()
-		self.frame.isMoving = false
+function Grid2Layout:StopMoveFrame(frame)
+	frame = frame or self.frame
+	if frame.isMoving then
+		frame:StopMovingOrSizing()
+		self:SavePosition(frame)
+		frame.isMoving = false
 		self:RestorePosition()
 	end
 end
@@ -261,6 +272,7 @@ function Grid2Layout:FrameLock(locked)
 	if (not p.FrameLock and p.ClickThrough) then
 		p.ClickThrough = false
 		self.frame:EnableMouse(true)
+		if self.petFrame then self.petFrame:EnableMouse(true) end
 	end
 end
 
@@ -280,6 +292,9 @@ function Grid2Layout:CreateFrame()
 	-- create main frame to hold all our gui elements
 	local f = CreateFrame("Frame", "Grid2LayoutFrame", UIParent)
 	self.frame = f
+	-- Key names let the shared Save/Restore/Scale machinery service either frame; the main frame uses the
+	-- original literals so the no-arg calls are byte-for-byte identical to before.
+	f.posXKey, f.posYKey, f.anchorKey = "PosX", "PosY", "anchor"
 	f:SetMovable(true)
 	f:SetClampedToScreen(p.clamp)
 	f:SetPoint("CENTER", UIParent, "CENTER")
@@ -293,15 +308,54 @@ function Grid2Layout:CreateFrame()
 	self.CreateFrame = nil
 end
 
+-- Separate, non-secure container for pet frames, created lazily only when the feature is enabled.
+-- It carries its own DB key names so the shared positioning code reads/writes the Pet* profile keys.
+function Grid2Layout:CreatePetFrame()
+	if self.petFrame then return end
+	local p = self.db.profile
+	local f = CreateFrame("Frame", "Grid2LayoutPetFrame", UIParent)
+	self.petFrame = f
+	f.posXKey, f.posYKey, f.anchorKey = "PetPosX", "PetPosY", "petAnchor"
+	f:SetMovable(true)
+	f:SetClampedToScreen(p.petClamp)
+	f:SetPoint("CENTER", UIParent, "CENTER")
+	f:SetScript("OnMouseUp", function() self:StopMoveFrame(f) end)
+	f:SetScript("OnHide", function() self:StopMoveFrame(f) end)
+	f:SetScript("OnMouseDown", function(_, button) self:StartMoveFrame(button, f) end)
+	f:SetFrameStrata(p.FrameStrata or "MEDIUM")
+	f:SetFrameLevel(0)
+	f:EnableMouse(not p.ClickThrough)
+	self:UpdateTextures(f)
+	self:UpdateColor(f)
+end
+
+-- Show/hide feedback for the options master toggle (real creation is guaranteed by LoadLayout, out of combat).
+function Grid2Layout:SetupPetFrame()
+	if self.db.profile.petEnabled then
+		if not self.petFrame and not InCombatLockdown() then
+			self:CreatePetFrame()
+		end
+		if self.petFrame then self.petFrame:Show() end
+	elseif self.petFrame then
+		self.petFrame:Hide()
+	end
+end
+
 local relativePoints = {
 	[false] = {TOPLEFT = "BOTTOMLEFT", TOPRIGHT = "BOTTOMRIGHT", BOTTOMLEFT = "TOPLEFT", BOTTOMRIGHT = "TOPRIGHT"},
 	[true] = {TOPLEFT = "TOPRIGHT", TOPRIGHT = "TOPLEFT", BOTTOMLEFT = "BOTTOMRIGHT", BOTTOMRIGHT = "BOTTOMLEFT"},
 	xMult = {TOPLEFT = 1, TOPRIGHT = -1, BOTTOMLEFT = 1, BOTTOMRIGHT = -1},
 	yMult = {TOPLEFT = -1, TOPRIGHT = -1, BOTTOMLEFT = 1, BOTTOMRIGHT = 1}
 }
-local previousFrame
+local previousFrame, previousPetFrame
 function Grid2Layout:PlaceGroup(frame, groupNumber)
 	local settings = self.db.profile
+	-- Route pet headers (already stamped isPetHeader at creation) to the pet container when enabled;
+	-- everything else stays on the main frame. Each container keeps its own placement chain so the first
+	-- group of each is corner-anchored and the rest chain off the previous one. prev==nil detects "first".
+	local usePet = settings.petEnabled and self.petFrame and frame.isPetHeader
+	local container = usePet and self.petFrame or self.frame
+	local prev = usePet and previousPetFrame or previousFrame
 	local horizontal = settings.horizontal
 	local vertical = not horizontal
 	local padding = settings.Padding
@@ -311,16 +365,20 @@ function Grid2Layout:PlaceGroup(frame, groupNumber)
 	local xMult = relativePoints.xMult[anchor]
 	local yMult = relativePoints.yMult[anchor]
 	frame:ClearAllPoints()
-	frame:SetParent(self.frame)
-	if groupNumber == 1 then
-		frame:SetPoint(anchor, self.frame, anchor, spacing * xMult, spacing * yMult)
+	frame:SetParent(container)
+	if prev == nil then
+		frame:SetPoint(anchor, container, anchor, spacing * xMult, spacing * yMult)
 	else
 		xMult = vertical and xMult * padding or 0
 		yMult = horizontal and yMult * padding or 0
-		frame:SetPoint(anchor, previousFrame, relPoint, xMult, yMult)
+		frame:SetPoint(anchor, prev, relPoint, xMult, yMult)
 	end
-	self:Debug("Placing group", groupNumber, frame:GetName(), anchor, previousFrame and previousFrame:GetName(), relPoint)
-	previousFrame = frame
+	self:Debug("Placing group", groupNumber, frame:GetName(), anchor, prev and prev:GetName(), relPoint)
+	if usePet then
+		previousPetFrame = frame
+	else
+		previousFrame = frame
+	end
 end
 
 function Grid2Layout:AddLayout(layoutName, layout)
@@ -386,6 +444,11 @@ function Grid2Layout:LoadLayout(layoutName)
 	self:Debug("LoadLayout", layoutName)
 
 	self.layoutName = layoutName
+	-- LoadLayout only runs out of combat (ReloadLayout is combat-guarded), so lazily creating the pet
+	-- container here is safe and guarantees it exists before Scale and before pet headers are parented to it.
+	if self.db.profile.petEnabled and not self.petFrame then
+		self:CreatePetFrame()
+	end
 	self:Scale()
 
 	local p = self.db.profile
@@ -400,6 +463,9 @@ function Grid2Layout:LoadLayout(layoutName)
 
 	local defaults = layout.defaults
 	local default_type = defaults and defaults.type or "raid"
+
+	-- Reset both placement chains each load; PlaceGroup detects the first group of each via prev==nil.
+	previousFrame, previousPetFrame = nil, nil
 
 	for i, l in ipairs(layout) do
 		local type = l.type or default_type
@@ -431,6 +497,10 @@ end
 function Grid2Layout:UpdateDisplay()
 	self:UpdateTextures()
 	self:UpdateColor()
+	if self.petFrame then
+		self:UpdateTextures(self.petFrame)
+		self:UpdateColor(self.petFrame)
+	end
 	self:CheckVisibility()
 	self:UpdateSize()
 end
@@ -443,7 +513,9 @@ function Grid2Layout:UpdateSize()
 	self.updateSizeQueued = nil
 
 	local p = self.db.profile
+	local usePet = p.petEnabled and self.petFrame
 	local curWidth, curHeight, maxWidth, maxHeight = 0, 0, 0, 0
+	local pCurWidth, pCurHeight, pMaxWidth, pMaxHeight = 0, 0, 0, 0
 	local Padding, Spacing = p.Padding, p.Spacing * 2
 
 	local frameWidth, frameHeight = Grid2Frame:GetFrameSize()
@@ -452,29 +524,44 @@ function Grid2Layout:UpdateSize()
 	end
 
 	for type, headers in pairs(self.groups) do
+		-- When the pet container is active, pet groups size it instead of the main frame; otherwise all
+		-- groups fold into the main frame exactly as before.
+		local petType = usePet and (type == "raidpet" or type == "partypet")
 		for i = 1, self.indexes[type] do
 			local g = headers[i]
 			local width, height = g:GetWidth(), g:GetHeight()
-			curWidth = curWidth + width + Padding
-			curHeight = curHeight + height + Padding
-			if maxWidth < width then
-				maxWidth = width
-			end
-			if maxHeight < height then
-				maxHeight = height
+			if petType then
+				pCurWidth = pCurWidth + width + Padding
+				pCurHeight = pCurHeight + height + Padding
+				if pMaxWidth < width then
+					pMaxWidth = width
+				end
+				if pMaxHeight < height then
+					pMaxHeight = height
+				end
+			else
+				curWidth = curWidth + width + Padding
+				curHeight = curHeight + height + Padding
+				if maxWidth < width then
+					maxWidth = width
+				end
+				if maxHeight < height then
+					maxHeight = height
+				end
 			end
 		end
 	end
 
-	local x = p.horizontal and maxWidth + Spacing or curWidth + Spacing - Padding
-	local y = p.horizontal and curHeight + Spacing - Padding or maxHeight + Spacing
-
-	self.frame:SetWidth(x)
-	self.frame:SetHeight(y)
+	self.frame:SetWidth(p.horizontal and maxWidth + Spacing or curWidth + Spacing - Padding)
+	self.frame:SetHeight(p.horizontal and curHeight + Spacing - Padding or maxHeight + Spacing)
+	if usePet then
+		self.petFrame:SetWidth(p.horizontal and pMaxWidth + Spacing or pCurWidth + Spacing - Padding)
+		self.petFrame:SetHeight(p.horizontal and pCurHeight + Spacing - Padding or pMaxHeight + Spacing)
+	end
 end
 
-function Grid2Layout:UpdateTextures()
-	local f = self.frame
+function Grid2Layout:UpdateTextures(frame)
+	local f = frame or self.frame
 	local p = self.db.profile
 	-- update backdrop data
 	self.frameBackdrop.bgFile = Grid2:MediaFetch("background", p.BackgroundTexture, "Interface\\ChatFrame\\ChatFrameBackground")
@@ -484,21 +571,32 @@ function Grid2Layout:UpdateTextures()
 	f:SetBackdrop(self.frameBackdrop)
 end
 
-function Grid2Layout:UpdateColor()
+function Grid2Layout:UpdateColor(frame)
+	local f = frame or self.frame
 	local settings = self.db.profile
-	self.frame:SetBackdropBorderColor(settings.BorderR, settings.BorderG, settings.BorderB, settings.BorderA)
-	self.frame:SetBackdropColor(settings.BackgroundR, settings.BackgroundG, settings.BackgroundB, settings.BackgroundA)
+	f:SetBackdropBorderColor(settings.BorderR, settings.BorderG, settings.BorderB, settings.BorderA)
+	f:SetBackdropColor(settings.BackgroundR, settings.BackgroundG, settings.BackgroundB, settings.BackgroundA)
 end
 
 function Grid2Layout:CheckVisibility()
-	local frameDisplay = self.db.profile.FrameDisplay
-	if
+	local p = self.db.profile
+	local frameDisplay = p.FrameDisplay
+	local show =
 		(frameDisplay == "Always") or (frameDisplay == "Grouped" and self.partyType ~= "solo") or
 			(frameDisplay == "Raid" and self.partyType:find("raid"))
-	 then
+	if show then
 		self.frame:Show()
 	else
 		self.frame:Hide()
+	end
+	if self.petFrame then
+		-- hide the pet container when there are no pet groups so an empty box doesn't linger
+		local hasPets = (self.indexes.raidpet + self.indexes.partypet) > 0
+		if show and p.petEnabled and hasPets then
+			self.petFrame:Show()
+		else
+			self.petFrame:Hide()
+		end
 	end
 end
 
@@ -528,16 +626,32 @@ local function GetFramePixel(frame)
 	if physH then return (768 / physH) / frame:GetEffectiveScale() end
 end
 
-function Grid2Layout:SavePosition()
-	local f = self.frame
+-- Snap a scale so one UI unit maps to a whole number of physical pixels (same basis as RestoreFramePosition).
+local function SnapScale(scale)
+	if Grid2Layout.db.profile.pixelPerfect ~= false then
+		local physH = GetPhysicalHeight()
+		if physH then
+			local uiScale = UIParent:GetEffectiveScale()
+			local pp = 768 / physH
+			local k = math.floor(scale * uiScale / pp + 0.5)
+			if k >= 1 then scale = k * pp / uiScale end
+		end
+	end
+	return scale
+end
+
+-- Reads/writes each frame's own position keys (main frame: PosX/PosY/anchor; pet frame: PetPosX/PetPosY/petAnchor).
+function Grid2Layout:SavePosition(frame)
+	local f = frame or self.frame
 	if f:GetLeft() and f:GetWidth() then
-		local a = self.db.profile.anchor
+		local p = self.db.profile
+		local a = p[f.anchorKey]
 		local s = f:GetEffectiveScale()
 		local t = UIParent:GetEffectiveScale()
 		local x = (a:find("LEFT") and f:GetLeft() * s) or (a:find("RIGHT") and f:GetRight() * s - UIParent:GetWidth() * t) or (f:GetLeft() + f:GetWidth() / 2) * s - UIParent:GetWidth() / 2 * t
 		local y = (a:find("BOTTOM") and f:GetBottom() * s) or (a:find("TOP") and f:GetTop() * s - UIParent:GetHeight() * t) or (f:GetTop() - f:GetHeight() / 2) * s - UIParent:GetHeight() / 2 * t
-		self.db.profile.PosX = x
-		self.db.profile.PosY = y
+		p[f.posXKey] = x
+		p[f.posYKey] = y
 		self:Debug("Saved Position", a, x, y)
 	end
 end
@@ -551,48 +665,66 @@ function Grid2Layout:ResetPosition()
 	self:SavePosition()
 end
 
+function Grid2Layout:ResetPetPosition()
+	local s = UIParent:GetEffectiveScale()
+	self.db.profile.PetPosX = UIParent:GetWidth() / 2 * s
+	self.db.profile.PetPosY = -UIParent:GetHeight() / 2 * s
+	self.db.profile.petAnchor = "TOPLEFT"
+	self:RestorePosition()
+	if self.petFrame then
+		self:SavePosition(self.petFrame)
+	end
+end
+
 function Grid2Layout:RestorePosition()
 	if InCombatLockdown() then
 		self.restorePositionQueued = true
 		return
 	end
 	self.restorePositionQueued = nil
-	local f = self.frame
+	self:RestoreFramePosition(self.frame)
+	if self.petFrame then
+		self:RestoreFramePosition(self.petFrame)
+	end
+end
+
+-- Position one frame from its own DB keys, snapped to the physical pixel grid. Shared by both containers;
+-- the main frame's keys are the original literals, so restoring it is byte-for-byte the previous behavior.
+function Grid2Layout:RestoreFramePosition(f)
+	local p = self.db.profile
 	local s = f:GetEffectiveScale()
-	local x = self.db.profile.PosX / s
-	local y = self.db.profile.PosY / s
-	-- Keep the grid origin on the physical pixel grid so the pixel-snapped frames aren't shifted half a pixel.
-	if self.db.profile.pixelPerfect ~= false then
+	local x = p[f.posXKey] / s
+	local y = p[f.posYKey] / s
+	if p.pixelPerfect ~= false then
 		local px = GetFramePixel(f)
 		if px then
 			x = math.floor(x / px + 0.5) * px
 			y = math.floor(y / px + 0.5) * px
 		end
 	end
-	local a = self.db.profile.anchor
+	local a = p[f.anchorKey]
 	f:ClearAllPoints()
 	f:SetPoint(a, x, y)
 	self:Debug("Restored Position", a, x, y)
 end
 
 function Grid2Layout:Scale()
-	local settings = self.db.profile
+	local p = self.db.profile
 	self:SavePosition()
-	local scale = settings.ScaleSize * (settings.layoutScales[self.layoutName or "solo"] or 1)
-	-- Snap the grid's effective scale so one UI unit maps to a whole number of physical pixels. Frame
-	-- edges (border, inner ring, content) then land exactly on the pixel grid instead of between pixels,
-	-- which is what lets a 1px sliver of the class color bleed past the border at fractional scales.
-	-- Monitor independent (physical height read at run time); no-op if it can't be determined.
-	if settings.pixelPerfect ~= false then
-		local physH = GetPhysicalHeight()
-		if physH then
-			local uiScale = UIParent:GetEffectiveScale()
-			local pp = 768 / physH
-			local k = math.floor(scale * uiScale / pp + 0.5)
-			if k >= 1 then scale = k * pp / uiScale end
-		end
+	if self.petFrame then
+		self:SavePosition(self.petFrame)
 	end
-	self.frame:SetScale(scale)
+	-- Snap the grid's effective scale so one UI unit maps to a whole number of physical pixels; frame edges
+	-- then land exactly on the pixel grid instead of between pixels (avoids a 1px class-color sliver at
+	-- fractional scales). Monitor independent; no-op if the physical height can't be determined.
+	local ls = p.layoutScales[self.layoutName or "solo"] or 1
+	local base = p.ScaleSize * ls
+	self.frame:SetScale(SnapScale(base))
+	if self.petFrame then
+		-- pet container follows the main scale unless given its own; snapped the same way
+		local pbase = p.petOwnScale and (p.PetScaleSize * ls) or base
+		self.petFrame:SetScale(SnapScale(pbase))
+	end
 	self:RestorePosition()
 end
 
@@ -604,6 +736,7 @@ function Grid2Layout:SetFrameLock(FrameLock, ClickThrough)
 	end
 	p.ClickThrough = ClickThrough
 	self.frame:EnableMouse(not ClickThrough)
+	if self.petFrame then self.petFrame:EnableMouse(not ClickThrough) end
 end
 
 function Grid2Layout:AddCustomLayouts()
