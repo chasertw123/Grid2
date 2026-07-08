@@ -65,6 +65,7 @@ L["Right, then down"] = true
 L["Left, then down"] = true
 L["Right, then up"] = true
 L["Left, then up"] = true
+L["Center, down"] = true
 
 L["Default Font"] = true
 

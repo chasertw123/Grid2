@@ -29,14 +29,26 @@ local GROW_DIR_VALUES = {
 	LEFT_DOWN  = L["Left, then down"],
 	RIGHT_UP   = L["Right, then up"],
 	LEFT_UP    = L["Left, then up"],
+	CENTER_DOWN = L["Center, down"],
 }
--- reverse lookup: current (horizontal, groupAnchor) -> the matching direction key
-local function GrowDirKey(horizontal, groupAnchor)
+-- reverse lookup: current (horizontal, groupAnchor, anchor) -> the matching direction key. The centered
+-- preset is checked first: "down" growth (false/TOPLEFT) with the frame pinned at top-center (anchor == TOP).
+local function GrowDirKey(horizontal, groupAnchor, anchor)
+	if not horizontal and groupAnchor == "TOPLEFT" and anchor == "TOP" then return "CENTER_DOWN" end
 	horizontal = horizontal and true or false
 	for key, v in pairs(GROW_DIRS) do
 		if v[1] == horizontal and v[2] == groupAnchor then return key end
 	end
 	return "DOWN_RIGHT"
+end
+-- Resolve a chosen direction key to its growth (horizontal, groupAnchor) plus the frame anchor to force:
+-- "TOP" for the centered preset (that top-center pin is what keeps it centered as it grows); for the 8 corner
+-- directions, nil UNLESS we are leaving the centered preset (curAnchor == "TOP"), in which case we un-center
+-- back to the default corner so the grid actually stops centering.
+local function GrowDirResolve(key, curAnchor)
+	if key == "CENTER_DOWN" then return false, "TOPLEFT", "TOP" end
+	local d = GROW_DIRS[key]
+	return d[1], d[2], (curAnchor == "TOP") and "TOPLEFT" or nil
 end
 
 Grid2Options:AddGeneralOptions("General", "Layout Settings", {
@@ -47,12 +59,17 @@ Grid2Options:AddGeneralOptions("General", "Layout Settings", {
 		order = order_layout + 4,
 		get = function()
 			local p = Grid2Layout.db.profile
-			return GrowDirKey(p.horizontal, p.groupAnchor)
+			return GrowDirKey(p.horizontal, p.groupAnchor, p.anchor)
 		end,
 		set = function(_, v)
-			local d = GROW_DIRS[v]
 			local p = Grid2Layout.db.profile
-			p.horizontal, p.groupAnchor = d[1], d[2]
+			local h, ga, anc = GrowDirResolve(v, p.anchor)
+			p.horizontal, p.groupAnchor = h, ga
+			if anc and anc ~= p.anchor then  -- centered preset pins TOP; corners un-center a lingering TOP
+				p.anchor = anc
+				Grid2Layout:SavePosition()
+				Grid2Layout:RestorePosition()
+			end
 			Grid2Layout:ReloadLayout()
 			if Grid2Options.LayoutTestRefresh then
 				Grid2Options:LayoutTestRefresh()
@@ -745,12 +762,19 @@ Grid2Options:AddGeneralOptions("Pets", "Pet Position", {
 			local p = Grid2Layout.db.profile
 			local h = p.petHorizontal
 			if h == nil then h = p.horizontal end
-			return GrowDirKey(h, p.petGroupAnchor or p.groupAnchor)
+			return GrowDirKey(h, p.petGroupAnchor or p.groupAnchor, p.petAnchor)
 		end,
 		set = function(_, v)
-			local d = GROW_DIRS[v]
 			local p = Grid2Layout.db.profile
-			p.petHorizontal, p.petGroupAnchor = d[1], d[2]
+			local h, ga, anc = GrowDirResolve(v, p.petAnchor)
+			p.petHorizontal, p.petGroupAnchor = h, ga
+			if anc and anc ~= p.petAnchor then  -- centered preset pins the pet frame at top-center
+				p.petAnchor = anc
+				if Grid2Layout.petFrame then
+					Grid2Layout:SavePosition(Grid2Layout.petFrame)
+				end
+				Grid2Layout:RestorePosition()
+			end
 			Grid2Layout:ReloadLayout()
 			if Grid2Options.LayoutTestRefresh then
 				Grid2Options:LayoutTestRefresh()
