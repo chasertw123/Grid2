@@ -7,6 +7,13 @@ local order_layout = 20
 local order_display = 30
 local order_anchor = 40
 
+-- The classic Layout Settings controls edit the ACTIVE layout's effective value (its override when one is
+-- enabled, else the global) through the engine resolver, so they stay consistent with the engine, drag-save
+-- and Reset (all resolver-based): a control never edits a different store than what is on screen. With no
+-- override active, AV/ASet resolve to exactly the global profile key -- default behavior is byte-for-byte.
+local function AV(key) return Grid2Layout:LayoutValue(Grid2Layout.layoutName, key) end
+local function ASet(key, v) Grid2Layout:SetLayoutValue(Grid2Layout.layoutName, key, v) end
+
 Grid2Options:AddGeneralOptions("General", "Layout Settings", {
 	horizontal = {
 		type = "toggle",
@@ -14,10 +21,10 @@ Grid2Options:AddGeneralOptions("General", "Layout Settings", {
 		desc = L["Switch between horzontal/vertical groups."],
 		order = order_layout + 4,
 		get = function()
-			return Grid2Layout.db.profile.horizontal
+			return AV("horizontal")
 		end,
 		set = function()
-			Grid2Layout.db.profile.horizontal = not Grid2Layout.db.profile.horizontal
+			ASet("horizontal", not AV("horizontal"))
 			Grid2Layout:ReloadLayout()
 			if Grid2Options.LayoutTestRefresh then
 				Grid2Options:LayoutTestRefresh()
@@ -191,10 +198,10 @@ Grid2Options:AddGeneralOptions("General", "Layout Settings", {
 		min = 0,
 		step = 1,
 		get = function()
-			return Grid2Layout.db.profile.Spacing
+			return AV("Spacing")
 		end,
 		set = function(_, v)
-			Grid2Layout.db.profile.Spacing = v
+			ASet("Spacing", v)
 			Grid2Layout:ReloadLayout()
 		end
 	},
@@ -207,10 +214,10 @@ Grid2Options:AddGeneralOptions("General", "Layout Settings", {
 		min = 0,
 		step = 1,
 		get = function()
-			return Grid2Layout.db.profile.Padding
+			return AV("Padding")
 		end,
 		set = function(_, v)
-			Grid2Layout.db.profile.Padding = v
+			ASet("Padding", v)
 			Grid2Layout:ReloadLayout()
 		end
 	},
@@ -225,10 +232,10 @@ Grid2Options:AddGeneralOptions("General", "Layout Settings", {
 		width = "double",
 		isPercent = true,
 		get = function()
-			return Grid2Layout.db.profile.ScaleSize
+			return AV("ScaleSize")
 		end,
 		set = function(_, v)
-			Grid2Layout.db.profile.ScaleSize = v
+			ASet("ScaleSize", v)
 			Grid2Layout:Scale()
 		end
 	},
@@ -243,10 +250,10 @@ Grid2Options:AddGeneralOptions("General", "Layout Settings", {
 		desc = L["Sets where Grid is anchored relative to the screen."],
 		order = order_anchor + 1,
 		get = function()
-			return Grid2Layout.db.profile.anchor
+			return AV("anchor")
 		end,
 		set = function(_, v)
-			Grid2Layout.db.profile.anchor = v
+			ASet("anchor", v)
 			Grid2Layout:SavePosition()
 			Grid2Layout:RestorePosition()
 		end,
@@ -272,10 +279,10 @@ Grid2Options:AddGeneralOptions("General", "Layout Settings", {
 		step = 1,
 		bigStep = 5,
 		get = function()
-			return floor(Grid2Layout.db.profile.PosX + 0.5)
+			return floor(AV("PosX") + 0.5)
 		end,
 		set = function(_, v)
-			Grid2Layout.db.profile.PosX = v
+			ASet("PosX", v)
 			Grid2Layout:RestorePosition()
 		end
 	},
@@ -289,10 +296,10 @@ Grid2Options:AddGeneralOptions("General", "Layout Settings", {
 		step = 1,
 		bigStep = 5,
 		get = function()
-			return floor(Grid2Layout.db.profile.PosY + 0.5)
+			return floor(AV("PosY") + 0.5)
 		end,
 		set = function(_, v)
-			Grid2Layout.db.profile.PosY = v
+			ASet("PosY", v)
 			Grid2Layout:RestorePosition()
 		end
 	},
@@ -302,10 +309,10 @@ Grid2Options:AddGeneralOptions("General", "Layout Settings", {
 		desc = L["Sets where groups are anchored relative to the layout frame."],
 		order = order_anchor + 2,
 		get = function()
-			return Grid2Layout.db.profile.groupAnchor
+			return AV("groupAnchor")
 		end,
 		set = function(_, v)
-			Grid2Layout.db.profile.groupAnchor = v
+			ASet("groupAnchor", v)
 			Grid2Layout:ReloadLayout()
 			if Grid2Options.LayoutTestRefresh then
 				Grid2Options:LayoutTestRefresh()
@@ -391,10 +398,10 @@ Grid2Options:AddGeneralOptions("Pets", "Pet Position", {
 		desc = L["Sets where the pet container is anchored relative to the screen."],
 		disabled = petPosDisabled,
 		get = function()
-			return Grid2Layout.db.profile.petAnchor
+			return AV("petAnchor")
 		end,
 		set = function(_, v)
-			Grid2Layout.db.profile.petAnchor = v
+			ASet("petAnchor", v)
 			-- Re-express the stored offset against the new anchor from the frame's current on-screen rect
 			-- so it stays put visually, mirroring the main-frame Layout Anchor handler above.
 			if Grid2Layout.petFrame then
@@ -425,10 +432,10 @@ Grid2Options:AddGeneralOptions("Pets", "Pet Position", {
 		bigStep = 5,
 		disabled = petPosDisabled,
 		get = function()
-			return floor(Grid2Layout.db.profile.PetPosX + 0.5)
+			return floor(AV("PetPosX") + 0.5)
 		end,
 		set = function(_, v)
-			Grid2Layout.db.profile.PetPosX = v
+			ASet("PetPosX", v)
 			Grid2Layout:RestorePosition()
 		end
 	},
@@ -443,10 +450,10 @@ Grid2Options:AddGeneralOptions("Pets", "Pet Position", {
 		bigStep = 5,
 		disabled = petPosDisabled,
 		get = function()
-			return floor(Grid2Layout.db.profile.PetPosY + 0.5)
+			return floor(AV("PetPosY") + 0.5)
 		end,
 		set = function(_, v)
-			Grid2Layout.db.profile.PetPosY = v
+			ASet("PetPosY", v)
 			Grid2Layout:RestorePosition()
 		end
 	},
@@ -494,10 +501,10 @@ Grid2Options:AddGeneralOptions("Pets", "Pet Position", {
 			return petPosDisabled() or not Grid2Layout.db.profile.petOwnScale
 		end,
 		get = function()
-			return Grid2Layout.db.profile.PetScaleSize
+			return AV("PetScaleSize")
 		end,
 		set = function(_, v)
-			Grid2Layout.db.profile.PetScaleSize = v
+			ASet("PetScaleSize", v)
 			Grid2Layout:Scale()
 		end
 	},
@@ -728,13 +735,12 @@ Grid2Options:AddGeneralOptions("Pets", "Pet Position", {
 		desc = L["Switch between horzontal/vertical groups."],
 		disabled = petGrowthDisabled,
 		get = function()
-			local p = Grid2Layout.db.profile
-			local h = p.petHorizontal
-			if h == nil then h = p.horizontal end
+			local h = AV("petHorizontal")
+			if h == nil then h = AV("horizontal") end
 			return h
 		end,
 		set = function(_, v)
-			Grid2Layout.db.profile.petHorizontal = v
+			ASet("petHorizontal", v)
 			Grid2Layout:ReloadLayout()
 			if Grid2Options.LayoutTestRefresh then
 				Grid2Options:LayoutTestRefresh()
@@ -748,11 +754,10 @@ Grid2Options:AddGeneralOptions("Pets", "Pet Position", {
 		desc = L["Sets where groups are anchored relative to the layout frame."],
 		disabled = petGrowthDisabled,
 		get = function()
-			local p = Grid2Layout.db.profile
-			return p.petGroupAnchor or p.groupAnchor
+			return AV("petGroupAnchor") or AV("groupAnchor")
 		end,
 		set = function(_, v)
-			Grid2Layout.db.profile.petGroupAnchor = v
+			ASet("petGroupAnchor", v)
 			Grid2Layout:ReloadLayout()
 			if Grid2Options.LayoutTestRefresh then
 				Grid2Options:LayoutTestRefresh()
@@ -775,11 +780,10 @@ Grid2Options:AddGeneralOptions("Pets", "Pet Position", {
 		step = 1,
 		disabled = petGrowthDisabled,
 		get = function()
-			local p = Grid2Layout.db.profile
-			return p.petPadding or p.Padding
+			return AV("petPadding") or AV("Padding")
 		end,
 		set = function(_, v)
-			Grid2Layout.db.profile.petPadding = v
+			ASet("petPadding", v)
 			Grid2Layout:ReloadLayout()
 		end
 	},
@@ -793,11 +797,10 @@ Grid2Options:AddGeneralOptions("Pets", "Pet Position", {
 		step = 1,
 		disabled = petGrowthDisabled,
 		get = function()
-			local p = Grid2Layout.db.profile
-			return p.petSpacing or p.Spacing
+			return AV("petSpacing") or AV("Spacing")
 		end,
 		set = function(_, v)
-			Grid2Layout.db.profile.petSpacing = v
+			ASet("petSpacing", v)
 			Grid2Layout:ReloadLayout()
 		end
 	}
