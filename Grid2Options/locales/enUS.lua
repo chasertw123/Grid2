@@ -46,6 +46,10 @@ L["Locks/unlocks the pet container for movement."] = true
 L["Click through the pet frame"] = true
 L["Allows mouse click through the pet container."] = true
 
+L["Pet Container Style"] = true
+L["Use a separate pet style"] = true
+L["Give the pet container its own background/border textures and colors instead of the main grid's."] = true
+
 L["Default Font"] = true
 
 L["Invert Bar Color"] = true

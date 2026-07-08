@@ -170,11 +170,24 @@ Grid2Layout.defaultDB = {
 		PetScaleSize = 1,
 		-- (deferred feature) independent pet frame-lock; false => pet follows the shared FrameLock/ClickThrough.
 		-- PetFrameLock / PetClickThrough are intentionally absent => inherit the main values until overridden.
-		petOwnLock = false
+		petOwnLock = false,
+		-- (deferred feature) independent pet backdrop/border styling; false => pet uses the shared main style.
+		-- Pet* style keys are intentionally absent => inherit the main values until overridden.
+		petOwnStyle = false
 	}
 }
 
 Grid2Layout.frameBackdrop = {
+	bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+	tile = true,
+	tileSize = 16,
+	edgeSize = 16,
+	insets = {left = 4, right = 4, top = 4, bottom = 4}
+}
+
+-- Separate scratch backdrop for the pet container so its own textures are never written into the shared
+-- frameBackdrop (which would otherwise leak onto the main frame on its next SetBackdrop).
+Grid2Layout.petFrameBackdrop = {
 	bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
 	tile = true,
 	tileSize = 16,
@@ -623,19 +636,37 @@ end
 function Grid2Layout:UpdateTextures(frame)
 	local f = frame or self.frame
 	local p = self.db.profile
-	-- update backdrop data
-	self.frameBackdrop.bgFile = Grid2:MediaFetch("background", p.BackgroundTexture, "Interface\\ChatFrame\\ChatFrameBackground")
-	self.frameBackdrop.edgeFile = Grid2:MediaFetch("border", p.BorderTexture)
-	self.frameBackdrop.tile = p.BackgroundTile
-	self.frameBackdrop.tileSize = p.BackgroundTileSize or 16
-	f:SetBackdrop(self.frameBackdrop)
+	-- The pet frame paints from its own petFrameBackdrop with pet textures (each inheriting the main value
+	-- when unset) only when petOwnStyle is on; otherwise this is the original main path on frameBackdrop.
+	local ownStyle = (f == self.petFrame) and p.petEnabled and p.petOwnStyle
+	local backdrop, bgTex, borderTex, tile, tileSize
+	if ownStyle then
+		backdrop = self.petFrameBackdrop
+		bgTex = p.PetBackgroundTexture or p.BackgroundTexture
+		borderTex = p.PetBorderTexture or p.BorderTexture
+		if p.PetBackgroundTile ~= nil then tile = p.PetBackgroundTile else tile = p.BackgroundTile end
+		tileSize = p.PetBackgroundTileSize or p.BackgroundTileSize
+	else
+		backdrop = self.frameBackdrop
+		bgTex, borderTex, tile, tileSize = p.BackgroundTexture, p.BorderTexture, p.BackgroundTile, p.BackgroundTileSize
+	end
+	backdrop.bgFile = Grid2:MediaFetch("background", bgTex, "Interface\\ChatFrame\\ChatFrameBackground")
+	backdrop.edgeFile = Grid2:MediaFetch("border", borderTex)
+	backdrop.tile = tile
+	backdrop.tileSize = tileSize or 16
+	f:SetBackdrop(backdrop)
 end
 
 function Grid2Layout:UpdateColor(frame)
 	local f = frame or self.frame
-	local settings = self.db.profile
-	f:SetBackdropBorderColor(settings.BorderR, settings.BorderG, settings.BorderB, settings.BorderA)
-	f:SetBackdropColor(settings.BackgroundR, settings.BackgroundG, settings.BackgroundB, settings.BackgroundA)
+	local p = self.db.profile
+	if (f == self.petFrame) and p.petEnabled and p.petOwnStyle then
+		f:SetBackdropBorderColor(p.PetBorderR or p.BorderR, p.PetBorderG or p.BorderG, p.PetBorderB or p.BorderB, p.PetBorderA or p.BorderA)
+		f:SetBackdropColor(p.PetBackgroundR or p.BackgroundR, p.PetBackgroundG or p.BackgroundG, p.PetBackgroundB or p.BackgroundB, p.PetBackgroundA or p.BackgroundA)
+	else
+		f:SetBackdropBorderColor(p.BorderR, p.BorderG, p.BorderB, p.BorderA)
+		f:SetBackdropColor(p.BackgroundR, p.BackgroundG, p.BackgroundB, p.BackgroundA)
+	end
 end
 
 function Grid2Layout:CheckVisibility()

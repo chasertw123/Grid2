@@ -349,6 +349,17 @@ Grid2Options:AddGeneralOptions("General", "Layout Settings", {
 local function petPosDisabled()
 	return not Grid2Layout.db.profile.petEnabled
 end
+local function petStyleDisabled()
+	return petPosDisabled() or not Grid2Layout.db.profile.petOwnStyle
+end
+-- Repaint just the pet container after a style change (it is created lazily; repaint only, no reload).
+local function RefreshPetStyle()
+	local f = Grid2Layout.petFrame
+	if f then
+		Grid2Layout:UpdateTextures(f)
+		Grid2Layout:UpdateColor(f)
+	end
+end
 
 Grid2Options:AddGeneralOptions("General", "Pet Position", {
 	petEnabled = {
@@ -559,6 +570,129 @@ Grid2Options:AddGeneralOptions("General", "Pet Position", {
 			if cur == nil then cur = p.ClickThrough end
 			p.PetClickThrough = not cur
 			Grid2Layout:ApplyClickThrough()
+		end
+	},
+	petStyleHeader = {
+		type = "header",
+		order = 40,
+		name = L["Pet Container Style"]
+	},
+	petownstyle = {
+		type = "toggle",
+		width = "full",
+		order = 41,
+		name = L["Use a separate pet style"],
+		desc = L["Give the pet container its own background/border textures and colors instead of the main grid's."],
+		disabled = petPosDisabled,
+		get = function()
+			return Grid2Layout.db.profile.petOwnStyle
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.petOwnStyle = v
+			RefreshPetStyle()
+		end
+	},
+	petBackgroundTexture = {
+		type = "select",
+		dialogControl = "LSM30_Background",
+		order = 42,
+		name = L["Background Texture"],
+		desc = L["Adjust the background texture."],
+		disabled = petStyleDisabled,
+		get = function()
+			local p = Grid2Layout.db.profile
+			return p.PetBackgroundTexture or p.BackgroundTexture or "None"
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.PetBackgroundTexture = v
+			RefreshPetStyle()
+		end,
+		values = AceGUIWidgetLSMlists.background
+	},
+	petBorderTexture = {
+		type = "select",
+		dialogControl = "LSM30_Border",
+		order = 43,
+		name = L["Border Texture"],
+		desc = L["Adjust the border texture."],
+		disabled = petStyleDisabled,
+		get = function()
+			local p = Grid2Layout.db.profile
+			return p.PetBorderTexture or p.BorderTexture or "Grid2 Flat"
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.PetBorderTexture = v
+			RefreshPetStyle()
+		end,
+		values = AceGUIWidgetLSMlists.border
+	},
+	petBackground = {
+		type = "color",
+		order = 44,
+		name = L["Background Color"],
+		desc = L["Adjust background color and alpha."],
+		hasAlpha = true,
+		disabled = petStyleDisabled,
+		get = function()
+			local p = Grid2Layout.db.profile
+			return p.PetBackgroundR or p.BackgroundR, p.PetBackgroundG or p.BackgroundG, p.PetBackgroundB or p.BackgroundB, p.PetBackgroundA or p.BackgroundA
+		end,
+		set = function(_, r, g, b, a)
+			local p = Grid2Layout.db.profile
+			p.PetBackgroundR, p.PetBackgroundG, p.PetBackgroundB, p.PetBackgroundA = r, g, b, a
+			RefreshPetStyle()
+		end
+	},
+	petBorder = {
+		type = "color",
+		order = 45,
+		name = L["Border Color"],
+		desc = L["Adjust border color and alpha."],
+		hasAlpha = true,
+		disabled = petStyleDisabled,
+		get = function()
+			local p = Grid2Layout.db.profile
+			return p.PetBorderR or p.BorderR, p.PetBorderG or p.BorderG, p.PetBorderB or p.BorderB, p.PetBorderA or p.BorderA
+		end,
+		set = function(_, r, g, b, a)
+			local p = Grid2Layout.db.profile
+			p.PetBorderR, p.PetBorderG, p.PetBorderB, p.PetBorderA = r, g, b, a
+			RefreshPetStyle()
+		end
+	},
+	petBackgroundTile = {
+		type = "toggle",
+		order = 46,
+		name = L["Tile"],
+		desc = L["Tile the background texture."],
+		disabled = petStyleDisabled,
+		get = function()
+			local p = Grid2Layout.db.profile
+			local v = p.PetBackgroundTile
+			if v == nil then v = p.BackgroundTile end
+			return v
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.PetBackgroundTile = v
+			RefreshPetStyle()
+		end
+	},
+	petBackgroundTileSize = {
+		type = "range",
+		order = 47,
+		name = L["Tile size"],
+		desc = L["The size of the texture pattern."],
+		min = 0,
+		max = floor(GetScreenWidth()),
+		step = 1,
+		disabled = petStyleDisabled,
+		get = function()
+			local p = Grid2Layout.db.profile
+			return p.PetBackgroundTileSize or p.BackgroundTileSize
+		end,
+		set = function(_, v)
+			Grid2Layout.db.profile.PetBackgroundTileSize = v
+			RefreshPetStyle()
 		end
 	}
 })
