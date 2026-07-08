@@ -1,0 +1,8 @@
+# This git repo exists only to version the Grid2-related addons so changes can
+# be rolled back. Every other addon under Interface/AddOns is intentionally
+# ignored and must never be tracked or modified.
+/*
+!/.gitignore
+!/Grid2/
+!/Grid2Options/
+!/Grid2AoeHeals/
