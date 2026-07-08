@@ -209,7 +209,7 @@ local function petRefreshBackground()
 	end
 end
 
-Grid2Options:AddGeneralOptions("General", "Pet Frames", {
+Grid2Options:AddGeneralOptions("Pets", "Pet Frames", {
 	petEnabled = {
 		type = "toggle",
 		order = 5,

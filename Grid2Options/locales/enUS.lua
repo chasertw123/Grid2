@@ -12,6 +12,7 @@ L["indicators"] = "Indicators"
 
 L["Frames"] = true
 L["frame"] = true
+L["Pets"] = true
 
 L["Pet Frames"] = true
 L["Customize pet frames separately"] = true

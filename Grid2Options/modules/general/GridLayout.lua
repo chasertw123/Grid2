@@ -364,7 +364,7 @@ local function RefreshPetStyle()
 	end
 end
 
-Grid2Options:AddGeneralOptions("General", "Pet Position", {
+Grid2Options:AddGeneralOptions("Pets", "Pet Position", {
 	petEnabled = {
 		type = "toggle",
 		width = "full",
