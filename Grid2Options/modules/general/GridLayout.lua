@@ -984,7 +984,25 @@ Grid2Options:AddGeneralOptions("General", "Per-Layout Overrides", {
 		get = ovGet("Padding"), set = ovSet("Padding", rGeo) },
 	ovSpacing = { type = "range", order = 33, name = L["Spacing"], min = 0, max = 25, step = 1, disabled = OvOff,
 		get = ovGet("Spacing"), set = ovSet("Spacing", rGeo) },
-	ovPetHeader = { type = "header", order = 39, name = L["Pet Frames"] },
+})
+
+-- Pet per-layout overrides live under the Pets tab, next to the other pet settings. They share the selected
+-- layout (selName) and the SAME enable toggle (override.enabled) as the main overrides above; the pet value
+-- controls are additionally gated on the global pet-container toggles (petEnabled / petOwnScale / petOwnGrowth).
+Grid2Options:AddGeneralOptions("Pets", "Per-Layout Overrides", {
+	configureLayout = {
+		type = "select", order = 1, name = L["Configure layout"],
+		desc = L["Pick which layout's settings to view and edit below."],
+		values = function() local t = {} for n in pairs(Grid2Layout.layoutSettings) do t[n] = n end return t end,
+		get = function() return Sel() end,
+		set = function(_, v) selName = v end
+	},
+	useOverride = {
+		type = "toggle", order = 2, width = "full", name = L["Use separate settings for this layout"],
+		desc = L["When on, this layout uses its own position/scale/geometry below instead of the global settings."],
+		get = function() local o = Ov() return o and o.enabled end,
+		set = function(_, v) EnableOverride(Sel(), v) end
+	},
 	ovPetAnchor = { type = "select", order = 40, name = L["Pet Layout Anchor"], disabled = petPosGate, values = OV_ANCHOR,
 		get = ovGet("petAnchor"), set = ovSetAnchor("petAnchor", function() return Grid2Layout.petFrame end) },
 	ovPetPosX = { type = "range", order = 41, name = L["Pet Horizontal Position"], softMin = -2048, softMax = 2048, step = 1, bigStep = 5,
