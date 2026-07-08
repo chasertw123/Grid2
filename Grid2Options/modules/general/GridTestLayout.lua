@@ -103,6 +103,7 @@ local function LayoutBuild()
 	mainGrid.active, petGrid.active = false, false
 	mainGrid.colCount, mainGrid.rowCount, mainGrid.col = 0, 0, 1
 	petGrid.colCount,  petGrid.rowCount,  petGrid.col  = 0, 0, 1
+	mainGrid.mixed, petGrid.mixed = false, false   -- set when a folded column's pet-ness differs from its grid
 	mainGrid.container = Grid2Layout.frame
 	petGrid.container  = Grid2Layout.petFrame
 
@@ -117,6 +118,7 @@ local function LayoutBuild()
 		local isPet    = ptype == "raidpet" or ptype == "partypet"
 		local isSpacer = ptype == "spacer"
 		local grid     = (petSeparate and isPet) and petGrid or mainGrid
+		if isPet ~= grid.isPet then grid.mixed = true end   -- a folded pet column needs its own pet size in this grid
 		local unitPerColumn = l.unitsPerColumn or defaults.unitsPerColumn or 5
 		local maxColumns    = l.maxColumns    or defaults.maxColumns    or 1
 		grid.colCount = grid.colCount + maxColumns
@@ -124,6 +126,7 @@ local function LayoutBuild()
 		for _ = 1, maxColumns do
 			local col = grid.cols[grid.col] or {}
 			col.spacer = isSpacer
+			col.isPet  = isPet                              -- pet appearance follows column type, not the container
 			grid.cols[grid.col] = col
 			grid.col = grid.col + 1
 		end
@@ -212,9 +215,9 @@ end
 
 -- Turn pooled frame #i into a live cell for `unit`: real size/appearance + every configured indicator, exactly
 -- as the live frames do. Positioning/sizing is done by the caller.
-local function PrepareFrame(grid, i, unit, frameLevel)
+local function PrepareFrame(grid, i, unit, frameLevel, isPet)
 	local f = AcquireFrame(grid, i)
-	f.isPet = grid.isPet             -- pet appearance/size is chosen inside GridFramePrototype:Layout
+	f.isPet = isPet                  -- per-column pet-ness; pet appearance/size is chosen inside Layout via petProfile
 	f:SetFrameLevel(frameLevel)      -- BEFORE Layout: bar/icon levels are parent:GetFrameLevel() + offset
 	SyncIndicators(f)                -- create added indicators, hide removed ones
 	f:Layout()                       -- size + backdrop + container + indicator layout, all from the live profile
@@ -256,34 +259,110 @@ local function RenderGrid(grid)
 
 	local p = Grid2Layout.db.profile
 	local horizontal, groupAnchor, Padding, Spacing = GetGrowth(p, grid.isPet)
-	local width, height = Grid2Frame:GetFrameSize(grid.isPet)
 	local frameLevel = f0:GetFrameLevel() + 1
+	-- Pet APPEARANCE (Grid2Frame pet.enabled) is orthogonal to the pet CONTAINER: it is the sole gate for
+	-- petProfile ~= nil, so it decides whether a pet cell resolves pet size/appearance/unit-pool. Read-only.
+	local petAppearance = Grid2Frame.db.profile.pet and Grid2Frame.db.profile.pet.enabled or false
 
-	local ux, uy, vx, vy, px, py, realCols, realRows =
-		LayoutGetVectors(groupAnchor, horizontal, Spacing, Spacing, width + Padding, height + Padding, grid.colCount, grid.rowCount)
+	-- Per-column sizing is needed ONLY for a grid holding folded pet columns (grid.mixed) AND only when the pet
+	-- appearance size actually differs from the main size. Every other case (all-main grid, the separate pet
+	-- grid, or pet appearance off) is size-uniform and runs the ORIGINAL vector path below untouched -- so with
+	-- pet appearance off the render is byte-for-byte identical (no cumulative-sum arithmetic).
+	local usePerColumn = false
+	if grid.mixed then
+		local mW, mH = Grid2Frame:GetFrameSize(false)
+		local pW, pH = Grid2Frame:GetFrameSize(true)
+		usePerColumn = (mW ~= pW) or (mH ~= pH)
+	end
+
+	if not usePerColumn then
+		local width, height = Grid2Frame:GetFrameSize(grid.isPet)
+		local ux, uy, vx, vy, px, py, realCols, realRows =
+			LayoutGetVectors(groupAnchor, horizontal, Spacing, Spacing, width + Padding, height + Padding, grid.colCount, grid.rowCount)
+		local i, filled = 1, 0
+		for nx = 0, grid.colCount - 1 do
+			local col = grid.cols[nx + 1]
+			for ny = 0, grid.rowCount - 1 do
+				if col.spacer then
+					ReleaseFrame(AcquireFrame(grid, i))  -- keep the pool dense (no nil holes -> #pool stays valid)
+				else
+					filled = filled + 1
+					-- pool + appearance follow the column's own pet-ness; with appearance off this reduces to
+					-- grid.isPet (byte-for-byte), with it on a folded pet cell gets pet units + pet look.
+					local frame = PrepareFrame(grid, i, PickUnit(grid.isPet or (col.isPet and petAppearance), filled), frameLevel, col.isPet)
+					frame:ClearAllPoints()
+					frame:SetPoint("TOPLEFT", f0, "TOPLEFT", nx * ux + ny * vx + px, -(nx * uy + ny * vy + py))
+					frame:SetSize(width, height)  -- explicit + combat-safe (non-secure); Layout skips SetSize in combat
+					frame:Show()
+				end
+				i = i + 1
+			end
+		end
+		local pool = grid.frames  -- hide leftovers from a previous, larger render of this grid
+		for j = i, #pool do ReleaseFrame(pool[j]) end
+		f0:SetSize(Spacing * 2 + realCols * (width + Padding) - Padding,
+		           Spacing * 2 + realRows * (height + Padding) - Padding)
+		return
+	end
+
+	-- Mixed-size path: folded pet columns at pet size, main columns at main size, packed edge-to-edge exactly as
+	-- the real engine chains headers off each other's actual rect. Growth/anchor/Padding/Spacing are the grid's
+	-- MAIN values (container off never takes GetGrowth's pet branch, so they are uniform); only CELL SIZE varies.
+	local colCount, rowCount = grid.colCount, grid.rowCount
+	local cw, ch, nxExt, nyStp = {}, {}, {}, {}   -- physical size + nx/ny-axis extents per column
+	for k = 1, colCount do
+		local w, h = Grid2Frame:GetFrameSize(grid.cols[k].isPet)
+		cw[k], ch[k] = w, h
+		if horizontal then nxExt[k], nyStp[k] = h, w else nxExt[k], nyStp[k] = w, h end
+	end
+	local nxNear, acc = {}, 0                      -- cumulative near-edge along the column-advance axis
+	for k = 1, colCount do
+		nxNear[k] = acc
+		acc = acc + nxExt[k] + Padding
+	end
+	local totalNx = acc - Padding
+	local maxNy = 0                                -- cross axis uses max (matches the real UpdateSize)
+	for k = 1, colCount do
+		local e = rowCount * (nyStp[k] + Padding) - Padding
+		if e > maxNy then maxNy = e end
+	end
+	local contW, contH
+	if horizontal then contW, contH = Spacing * 2 + maxNy, Spacing * 2 + totalNx
+	else               contW, contH = Spacing * 2 + totalNx, Spacing * 2 + maxNy end
+	local right  = groupAnchor == "TOPRIGHT" or groupAnchor == "BOTTOMRIGHT"
+	local bottom = groupAnchor == "BOTTOMLEFT" or groupAnchor == "BOTTOMRIGHT"
 
 	local i, filled = 1, 0
-	for nx = 0, grid.colCount - 1 do
-		local col = grid.cols[nx + 1]
-		for ny = 0, grid.rowCount - 1 do
+	for nx = 0, colCount - 1 do
+		local k = nx + 1
+		local col = grid.cols[k]
+		local an = Spacing + nxNear[k]                       -- near edge along the column-advance axis
+		for ny = 0, rowCount - 1 do
 			if col.spacer then
-				ReleaseFrame(AcquireFrame(grid, i))  -- keep the pool dense (no nil holes -> #pool stays valid)
+				ReleaseFrame(AcquireFrame(grid, i))
 			else
 				filled = filled + 1
-				local frame = PrepareFrame(grid, i, PickUnit(grid.isPet, filled), frameLevel)
+				local bn = Spacing + ny * (nyStp[k] + Padding)  -- near edge along the within-column axis
+				local frame = PrepareFrame(grid, i, PickUnit(grid.isPet or (col.isPet and petAppearance), filled), frameLevel, col.isPet)
+				local dx, dyDown
+				if horizontal then                              -- nx-axis = Y, ny-axis = X
+					dyDown = bottom and (contH - an - ch[k]) or an
+					dx     = right  and (contW - bn - cw[k]) or bn
+				else                                            -- nx-axis = X, ny-axis = Y
+					dx     = right  and (contW - an - cw[k]) or an
+					dyDown = bottom and (contH - bn - ch[k]) or bn
+				end
 				frame:ClearAllPoints()
-				frame:SetPoint("TOPLEFT", f0, "TOPLEFT", nx * ux + ny * vx + px, -(nx * uy + ny * vy + py))
-				frame:SetSize(width, height)  -- explicit + combat-safe (non-secure); Layout skips SetSize in combat
+				frame:SetPoint("TOPLEFT", f0, "TOPLEFT", dx, -dyDown)
+				frame:SetSize(cw[k], ch[k])                     -- per-column pet size; reinforces Layout, combat-safe
 				frame:Show()
 			end
 			i = i + 1
 		end
 	end
-	local pool = grid.frames  -- hide leftovers from a previous, larger render of this grid
+	local pool = grid.frames
 	for j = i, #pool do ReleaseFrame(pool[j]) end
-
-	f0:SetSize(Spacing * 2 + realCols * (width + Padding) - Padding,
-	           Spacing * 2 + realRows * (height + Padding) - Padding)
+	f0:SetSize(contW, contH)
 end
 
 local function LayoutHide(restoreRealLayout)
