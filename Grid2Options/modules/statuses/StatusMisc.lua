@@ -8,7 +8,7 @@ Grid2Options:RegisterStatusOptions("voice", "misc", nil, {titleIcon = "Interface
 Grid2Options:RegisterStatusOptions("offline", "misc", nil, {titleIcon = "Interface\\CharacterFrame\\Disconnect-Icon", titleIconCoords = {0.3, 0.7, 0.2, 0.8}})
 Grid2Options:RegisterStatusOptions("vehicle", "misc", nil, {titleIcon = "Interface\\Vehicles\\UI-Vehicles-Button-Exit-Up", titleIconCoords = {0.2, 0.8, 0.2, 0.8}})
 Grid2Options:RegisterStatusOptions("target", "target", nil, {title = L["highlights your target"], titleIcon = "Interface\\Icons\\Ability_hunter_mastermarksman"})
-Grid2Options:RegisterStatusOptions("targeted-count", "target", nil, {title = L["Number of group members targeting the unit"], titleIcon = "Interface\\Icons\\Ability_hunter_snipershot"})
+Grid2Options:RegisterStatusOptions("targeted-count", "target", nil, {title = L["Number of enemies targeting the unit"], titleIcon = "Interface\\Icons\\Ability_hunter_snipershot"})
 Grid2Options:RegisterStatusOptions("pvp", "combat", nil, {titleIcon = UnitFactionGroup("player") == "Horde" and "Interface\\PVPFrame\\PVP-Currency-Horde" or "Interface\\PVPFrame\\PVP-Currency-Alliance"})
 Grid2Options:RegisterStatusOptions("self", "target", nil, {titleIcon = "Interface\\Icons\\Inv_wand_12"})
 Grid2Options:RegisterStatusOptions("resurrection", "combat", nil, {

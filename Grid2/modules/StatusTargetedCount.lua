@@ -1,10 +1,14 @@
--- "targeted-count" status: how many group members are currently targeting each unit.
--- Target changes are not reliably event-driven for every raid member on 3.3.5, so this polls the roster on a
--- short repeating timer and DIFFS the result, refreshing only the units whose count actually changed. The
--- status is opt-in (only enabled when mapped to an indicator), so the poll runs only while it is in use.
+-- "targeted-count" status: how many ENEMIES are currently targeting each unit (an aggro / "who has threat"
+-- count). 3.3.5 has no way to enumerate every enemy, so we scan the enemies reachable via unit tokens --
+-- boss1..5 plus whatever each group member (and their pet) is currently targeting -- de-duplicate by GUID, and
+-- for each hostile, alive one check whether its target is a unit shown in Grid (a group member). Enemies that
+-- nobody in the group is targeting and that are not boss units can't be seen, so they are not counted.
+-- Polled on a short repeating timer and DIFFED so only units whose count changed are refreshed; the status is
+-- opt-in, so the poll runs only while it is mapped to an indicator.
 local Grid2 = Grid2
 
 local UnitGUID = UnitGUID
+local UnitCanAttack, UnitIsDeadOrGhost = UnitCanAttack, UnitIsDeadOrGhost
 local GetNumRaidMembers, GetNumPartyMembers = GetNumRaidMembers, GetNumPartyMembers
 local wipe, tostring = wipe, tostring
 
@@ -12,31 +16,48 @@ local TargetedCount = Grid2.statusPrototype:new("targeted-count")
 TargetedCount.GetColor = Grid2.statusLibrary.GetColor
 
 local counts, prev = {}, {}
+local seen = {}   -- enemy GUIDs already counted this scan (de-dup: one enemy can be reached via several tokens)
 
--- Fill `counts[targetGUID] = number of members targeting that GUID`. In a raid the player is one of raid1..N,
--- so iterating raid1..N covers everyone; otherwise it's the player ("target") plus party1..N.
-local function ScanTargets()
+-- If `eunit` is a hostile, living enemy we haven't counted yet, and it is targeting a unit shown in Grid,
+-- increment that unit's count.
+local function AddEnemy(eunit)
+	local eguid = UnitGUID(eunit)
+	if not eguid or seen[eguid] then return end
+	if not UnitCanAttack("player", eunit) or UnitIsDeadOrGhost(eunit) then return end
+	seen[eguid] = true
+	local tguid = UnitGUID(eunit .. "target")   -- who this enemy is targeting
+	if tguid and Grid2:GetUnitidByGUID(tguid) then   -- ...and that target is a unit Grid shows (a group member)
+		counts[tguid] = (counts[tguid] or 0) + 1
+	end
+end
+
+-- Build the reachable enemy pool and count how many target each group member.
+local function ScanEnemies()
+	wipe(seen)
+	for i = 1, 5 do AddEnemy("boss" .. i) end
 	local nRaid = GetNumRaidMembers()
 	if nRaid > 0 then
 		for i = 1, nRaid do
-			local g = UnitGUID("raid" .. i .. "target")
-			if g then counts[g] = (counts[g] or 0) + 1 end
+			AddEnemy("raid" .. i .. "target")
+			AddEnemy("raidpet" .. i .. "target")
 		end
 	else
-		local g = UnitGUID("target")   -- the player's own target
-		if g then counts[g] = (counts[g] or 0) + 1 end
+		AddEnemy("target")
+		AddEnemy("pettarget")
 		for i = 1, GetNumPartyMembers() do
-			g = UnitGUID("party" .. i .. "target")
-			if g then counts[g] = (counts[g] or 0) + 1 end
+			AddEnemy("party" .. i .. "target")
+			AddEnemy("partypet" .. i .. "target")
 		end
 	end
+	AddEnemy("focus")
+	AddEnemy("mouseover")
 end
 
 -- Rescan into `counts`, keeping the previous scan in `prev`, and refresh only the units whose count changed.
 local function DoScan()
 	prev, counts = counts, prev
 	wipe(counts)
-	ScanTargets()
+	ScanEnemies()
 	for guid, n in pairs(counts) do
 		if prev[guid] ~= n then
 			local u = Grid2:GetUnitidByGUID(guid)

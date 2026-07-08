@@ -885,7 +885,7 @@ L["Show even when not in a dungeon"] = true
 
 -- status descriptions
 L["highlights your target"] = true
-L["Number of group members targeting the unit"] = true
+L["Number of enemies targeting the unit"] = true
 L["hostile casts against raid members"] = true
 L["advanced threat detection"] = true
 L["arrows pointing to each raid member"] = true
