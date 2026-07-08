@@ -387,75 +387,110 @@ Grid2:DbSetStatusDefaultValue("health-deficit", {type = "health-deficit", color1
 
 -- heals-incoming status
 do
+	-- Prefer the server's NATIVE incoming-heals API when the client exposes it (Ascension and many 3.3.5 private
+	-- servers backport UnitGetIncomingHeals / UNIT_HEAL_PREDICTION). It reflects the server's own calculation, so
+	-- it works for CUSTOM/private-server spells -- LibHealComm-4.0 only knows a hardcoded retail spell database
+	-- and predicts nothing for custom spells. This mirrors what Grid2AoeHeals and ElvUI already do; LibHealComm
+	-- stays as the fallback for clients without the native API.
+	local UnitGetIncomingHeals = _G.UnitGetIncomingHeals
 	local HealComm = LibStub("LibHealComm-4.0", true)
-	if not HealComm then return end
-	Heals.GetColor = Grid2.statusLibrary.GetColor
+	if not UnitGetIncomingHeals and not HealComm then return end
 
 	local UnitGUID = UnitGUID
-	local HEALCOMM_FLAGS = HealComm.ALL_HEALS
 	local HEALCOMM_MINIMUM = 0
-	local HEALCOMM_TIMEFRAME = nil
+	local get_active_heal_amount, get_effective_heal_amount
 
-	local function get_active_heal_amount_with_user(unit)
-		local timeFrame = (HEALCOMM_TIMEFRAME and GetTime() + HEALCOMM_TIMEFRAME) or nil
-		return HealComm:GetHealAmount(UnitGUID(unit), HEALCOMM_FLAGS, timeFrame)
-	end
+	if UnitGetIncomingHeals then
+		-- Native path. The LibHealComm-only options (flags / timeFrame / modifier) don't apply here: the API
+		-- already returns the total effective incoming heal for the unit.
+		local UnitName = UnitName
+		local playerName = UnitName("player")
+		local function all_heals(unit) return UnitGetIncomingHeals(unit) or 0 end
+		local function others_heals(unit)   -- everyone else's heals = total minus my own
+			return (UnitGetIncomingHeals(unit) or 0) - (UnitGetIncomingHeals(unit, playerName) or 0)
+		end
+		get_active_heal_amount = all_heals
+		get_effective_heal_amount = function(unit) return get_active_heal_amount(unit) end
 
-	local function get_active_heal_amount_without_user(unit)
-		local timeFrame = (HEALCOMM_TIMEFRAME and GetTime() + HEALCOMM_TIMEFRAME) or nil
-		return HealComm:GetOthersHealAmount(UnitGUID(unit), HEALCOMM_FLAGS, timeFrame)
-	end
+		function Heals:UpdateDB()
+			HEALCOMM_MINIMUM = (self.dbx.minimum or 0) > 1 and self.dbx.minimum or 0
+			playerName = UnitName("player") or playerName
+			get_active_heal_amount = self.dbx.includePlayerHeals and all_heals or others_heals
+		end
 
-	local get_active_heal_amount = get_active_heal_amount_with_user
+		local predictFrame = CreateFrame("Frame")
+		predictFrame:SetScript("OnEvent", function(_, _, unit)
+			if unit then Heals:UpdateIndicators(unit) end
+		end)
+		function Heals:OnEnable()
+			self:UpdateDB()
+			pcall(predictFrame.RegisterEvent, predictFrame, "UNIT_HEAL_PREDICTION")   -- guard: event may be absent
+		end
+		function Heals:OnDisable()
+			pcall(predictFrame.UnregisterEvent, predictFrame, "UNIT_HEAL_PREDICTION")
+		end
+	else
+		-- LibHealComm fallback (original behavior, for clients without the native API).
+		local HEALCOMM_FLAGS = HealComm.ALL_HEALS
+		local HEALCOMM_TIMEFRAME = nil
+		local function get_active_heal_amount_with_user(unit)
+			local timeFrame = (HEALCOMM_TIMEFRAME and GetTime() + HEALCOMM_TIMEFRAME) or nil
+			return HealComm:GetHealAmount(UnitGUID(unit), HEALCOMM_FLAGS, timeFrame)
+		end
+		local function get_active_heal_amount_without_user(unit)
+			local timeFrame = (HEALCOMM_TIMEFRAME and GetTime() + HEALCOMM_TIMEFRAME) or nil
+			return HealComm:GetOthersHealAmount(UnitGUID(unit), HEALCOMM_FLAGS, timeFrame)
+		end
+		get_active_heal_amount = get_active_heal_amount_with_user
+		get_effective_heal_amount = function(unit)
+			local heal = get_active_heal_amount(unit)
+			return heal and heal * HealComm:GetHealModifier(UnitGUID(unit)) or 0
+		end
 
-	local function get_effective_heal_amount(unit)
-		local heal = get_active_heal_amount(unit)
-		return heal and heal * HealComm:GetHealModifier(UnitGUID(unit)) or 0
-	end
+		function Heals:UpdateDB()
+			HEALCOMM_MINIMUM = (self.dbx.minimum or 0) > 1 and self.dbx.minimum or 0
+			HEALCOMM_TIMEFRAME = (self.dbx.timeFrame > 0) and self.dbx.timeFrame or nil
+			get_active_heal_amount = self.dbx.includePlayerHeals and get_active_heal_amount_with_user or get_active_heal_amount_without_user
+			HEALCOMM_FLAGS = bit.bor(
+				self.dbx.flags.direct and HealComm.DIRECT_HEALS or 0,
+				self.dbx.flags.channel and HealComm.CHANNEL_HEALS or 0,
+				self.dbx.flags.hot and HealComm.HOT_HEALS or 0,
+				self.dbx.flags.hot and HealComm.BOMB_HEALS or 0
+			)
+		end
 
-	function Heals:UpdateDB()
-		HEALCOMM_MINIMUM = (self.dbx.minimum or 0) > 1 and self.dbx.minimum or 0
-		HEALCOMM_TIMEFRAME = (self.dbx.timeFrame > 0) and self.dbx.timeFrame or nil
-		get_active_heal_amount = self.dbx.includePlayerHeals and get_active_heal_amount_with_user or get_active_heal_amount_without_user
-		HEALCOMM_FLAGS = bit.bor(
-			self.dbx.flags.direct and HealComm.DIRECT_HEALS or 0,
-			self.dbx.flags.channel and HealComm.CHANNEL_HEALS or 0,
-			self.dbx.flags.hot and HealComm.HOT_HEALS or 0,
-			self.dbx.flags.hot and HealComm.BOMB_HEALS or 0
-		)
-	end
+		function Heals:OnEnable()
+			HealComm.RegisterCallback(self, "HealComm_HealStarted", "Update")
+			HealComm.RegisterCallback(self, "HealComm_HealUpdated", "Update")
+			HealComm.RegisterCallback(self, "HealComm_HealDelayed", "Update")
+			HealComm.RegisterCallback(self, "HealComm_HealStopped", "Update")
+			HealComm.RegisterCallback(self, "HealComm_ModifierChanged", "UpdateModifier")
+			self:UpdateDB()
+		end
 
-	function Heals:OnEnable()
-		HealComm.RegisterCallback(self, "HealComm_HealStarted", "Update")
-		HealComm.RegisterCallback(self, "HealComm_HealUpdated", "Update")
-		HealComm.RegisterCallback(self, "HealComm_HealDelayed", "Update")
-		HealComm.RegisterCallback(self, "HealComm_HealStopped", "Update")
-		HealComm.RegisterCallback(self, "HealComm_ModifierChanged", "UpdateModifier")
-		self:UpdateDB()
-	end
+		function Heals:OnDisable()
+			HealComm.UnregisterCallback(self, "HealComm_HealStarted")
+			HealComm.UnregisterCallback(self, "HealComm_HealUpdated")
+			HealComm.UnregisterCallback(self, "HealComm_HealDelayed")
+			HealComm.UnregisterCallback(self, "HealComm_HealStopped")
+			HealComm.UnregisterCallback(self, "HealComm_ModifierChanged")
+		end
 
-	function Heals:OnDisable()
-		HealComm.UnregisterCallback(self, "HealComm_HealStarted")
-		HealComm.UnregisterCallback(self, "HealComm_HealUpdated")
-		HealComm.UnregisterCallback(self, "HealComm_HealDelayed")
-		HealComm.UnregisterCallback(self, "HealComm_HealStopped")
-		HealComm.UnregisterCallback(self, "HealComm_ModifierChanged")
-	end
+		function Heals:Update(event, healerGuid, _, _, _, ...)
+			for i = 1, select("#", ...) do
+				local guid = select(i, ...)
+				local unit = Grid2:GetUnitidByGUID(guid)
+				if unit then
+					self:UpdateIndicators(unit)
+				end
+			end
+		end
 
-	function Heals:Update(event, healerGuid, _, _, _, ...)
-		for i = 1, select("#", ...) do
-			local guid = select(i, ...)
+		function Heals:UpdateModifier(event, guid)
 			local unit = Grid2:GetUnitidByGUID(guid)
 			if unit then
 				self:UpdateIndicators(unit)
 			end
-		end
-	end
-
-	function Heals:UpdateModifier(event, guid)
-		local unit = Grid2:GetUnitidByGUID(guid)
-		if unit then
-			self:UpdateIndicators(unit)
 		end
 	end
 
