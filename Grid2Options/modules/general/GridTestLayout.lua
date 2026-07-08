@@ -17,6 +17,10 @@ local UnitExists = UnitExists
 
 local layoutName  -- name of the layout being previewed (nil => test off)
 
+-- Resolve a setting for the PREVIEWED layout through the engine's read-only per-layout override resolver, so the
+-- preview reflects that layout's own position/scale/geometry overrides. Reads only -- never persists anything.
+local function LV(key) return Grid2Layout:LayoutValue(layoutName, key) end
+
 -- One descriptor per preview grid. mainGrid -> Grid2Layout.frame; petGrid -> Grid2Layout.petFrame (only when
 -- the pet container feature is enabled). Each owns pooled REAL frames that persist across loads, the per-column
 -- membership rebuilt every refresh, and the container scale saved on first render. headerId seeds a unique,
@@ -35,14 +39,15 @@ function Grid2Layout:ShowFrames(enabled)
 	end
 end
 
--- Growth resolver copied from Grid2/GridLayout.lua GetGrowth (a file-local there). Still needed for geometry.
+-- Growth resolver mirroring Grid2/GridLayout.lua GetGrowth, but resolving each value for the PREVIEWED layout
+-- via LV (read-only per-layout override lookup). Pet MODE gates (petEnabled/petOwnGrowth) stay global.
 local function GetGrowth(p, isPet)
 	if isPet and p.petEnabled and p.petOwnGrowth then
-		local h = p.petHorizontal
-		if h == nil then h = p.horizontal end
-		return h, p.petGroupAnchor or p.groupAnchor, p.petPadding or p.Padding, p.petSpacing or p.Spacing
+		local h = LV("petHorizontal")
+		if h == nil then h = LV("horizontal") end
+		return h, LV("petGroupAnchor") or LV("groupAnchor"), LV("petPadding") or LV("Padding"), LV("petSpacing") or LV("Spacing")
 	end
-	return p.horizontal, p.groupAnchor, p.Padding, p.Spacing
+	return LV("horizontal"), LV("groupAnchor"), LV("Padding"), LV("Spacing")
 end
 
 -- Vector maths, unchanged from the original.
@@ -75,11 +80,11 @@ local function EnsureScaled(grid)
 	if not f then return end
 	local p = Grid2Layout.db.profile
 	local ls = p.layoutScales[layoutName] or 1
-	local base = p.ScaleSize * ls
-	local scale = grid.isPet and (p.petOwnScale and (p.PetScaleSize * ls) or base) or base
+	local base = LV("ScaleSize") * ls
+	local scale = grid.isPet and (p.petOwnScale and (LV("PetScaleSize") * ls) or base) or base
 	grid.savedScale = f:GetScale()
 	f:SetScale(scale)
-	Grid2Layout:RestoreFramePosition(f)   -- read-only re-anchor at the preview scale
+	Grid2Layout:RestoreFramePosition(f, layoutName)   -- read-only re-anchor at the previewed layout's position
 end
 
 local function RestoreScale(grid)

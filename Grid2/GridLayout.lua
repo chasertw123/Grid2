@@ -90,17 +90,52 @@ local anchorPoints = {
 	RIGHT = -1
 }
 
+-- ============================ Per-layout setting overrides ============================
+-- Each layout (by name) may optionally override a small set of layout-level settings. LayoutValue/SetLayoutValue
+-- resolve a key against the named layout's override -- only when that override is enabled AND actually holds the
+-- key -- else the global profile. LGet/LSet are the active-layout shortcuts the engine's own read/write sites
+-- use. With no overrides everything falls through to the global key byte-for-byte. Overridable = the position,
+-- scale and geometry VALUES (main + pet); pet MODE toggles (petEnabled/petOwnScale/petOwnGrowth/...) stay global.
+local OVERRIDABLE = {
+	PosX = true, PosY = true, anchor = true, ScaleSize = true, Padding = true, Spacing = true, horizontal = true, groupAnchor = true,
+	PetPosX = true, PetPosY = true, petAnchor = true, PetScaleSize = true, petPadding = true, petSpacing = true, petHorizontal = true, petGroupAnchor = true,
+}
+function Grid2Layout:LayoutValue(name, key)
+	local p = self.db.profile
+	local ov = p.layoutOverrides and p.layoutOverrides[name or "solo"]
+	if ov and ov.enabled and ov[key] ~= nil then return ov[key] end   -- presence test: untouched keys use the global
+	return p[key]
+end
+function Grid2Layout:SetLayoutValue(name, key, value)
+	local p = self.db.profile
+	local ov = p.layoutOverrides and p.layoutOverrides[name or "solo"]
+	if ov and ov.enabled and OVERRIDABLE[key] then
+		ov[key] = value
+		-- Pin the anchor on the first coordinate write so a later change to the GLOBAL anchor can't reinterpret
+		-- this layout's saved offset.
+		if (key == "PosX" or key == "PosY") and ov.anchor == nil then
+			ov.anchor = p.anchor
+		elseif (key == "PetPosX" or key == "PetPosY") and ov.petAnchor == nil then
+			ov.petAnchor = p.petAnchor
+		end
+	else
+		p[key] = value
+	end
+end
+local function LGet(key) return Grid2Layout:LayoutValue(Grid2Layout.layoutName, key) end
+local function LSet(key, v) Grid2Layout:SetLayoutValue(Grid2Layout.layoutName, key, v) end
+
 -- Resolve growth (horizontal, groupAnchor, Padding, Spacing) for a header. Pet headers use their own
 -- values only when petEnabled + petOwnGrowth (each inheriting the main value when unset); everything else
 -- returns the main values, so with the feature off this is byte-for-byte the old behavior. Declared BEFORE
 -- SetOrientation on purpose: it is a file-local upvalue bound at function-definition time.
 local function GetGrowth(p, isPet)
 	if isPet and p.petEnabled and p.petOwnGrowth then
-		local h = p.petHorizontal
-		if h == nil then h = p.horizontal end
-		return h, p.petGroupAnchor or p.groupAnchor, p.petPadding or p.Padding, p.petSpacing or p.Spacing
+		local h = LGet("petHorizontal")
+		if h == nil then h = LGet("horizontal") end
+		return h, LGet("petGroupAnchor") or LGet("groupAnchor"), LGet("petPadding") or LGet("Padding"), LGet("petSpacing") or LGet("Spacing")
 	end
-	return p.horizontal, p.groupAnchor, p.Padding, p.Spacing
+	return LGet("horizontal"), LGet("groupAnchor"), LGet("Padding"), LGet("Spacing")
 end
 
 -- Growth resolved per-header from self.isPetHeader (stamped at creation); no parameter (callers pass none).
@@ -155,6 +190,7 @@ Grid2Layout.defaultDB = {
 			arena = "By Group 5 w/Pets"
 		},
 		layoutScales = {},
+		layoutOverrides = {},   -- [layoutName] = { enabled=bool, PosX=, PosY=, anchor=, ScaleSize=, ... } per-layout overrides
 		horizontal = true,
 		-- Party/raid sorting (GridPartySort.lua). sortRoleOrder is created lazily (not here) to avoid AceDB
 		-- sharing a nested-table default by reference across profiles.
@@ -543,6 +579,10 @@ function Grid2Layout:LoadLayout(layoutName)
 	if self.db.profile.petEnabled and not self.petFrame then
 		self:CreatePetFrame()
 	end
+	-- Apply THIS layout's stored position BEFORE Scale(): Scale()'s internal SavePosition re-captures the
+	-- current on-screen rect, so without this it would write the previous layout's position into this layout's
+	-- override. Restoring first makes that internal save idempotent (per-layout position overrides depend on it).
+	self:RestorePosition()
 	self:Scale()
 
 	local p = self.db.profile
@@ -759,32 +799,31 @@ end
 function Grid2Layout:SavePosition(frame)
 	local f = frame or self.frame
 	if f:GetLeft() and f:GetWidth() then
-		local p = self.db.profile
-		local a = p[f.anchorKey]
+		local a = LGet(f.anchorKey)
 		local s = f:GetEffectiveScale()
 		local t = UIParent:GetEffectiveScale()
 		local x = (a:find("LEFT") and f:GetLeft() * s) or (a:find("RIGHT") and f:GetRight() * s - UIParent:GetWidth() * t) or (f:GetLeft() + f:GetWidth() / 2) * s - UIParent:GetWidth() / 2 * t
 		local y = (a:find("BOTTOM") and f:GetBottom() * s) or (a:find("TOP") and f:GetTop() * s - UIParent:GetHeight() * t) or (f:GetTop() - f:GetHeight() / 2) * s - UIParent:GetHeight() / 2 * t
-		p[f.posXKey] = x
-		p[f.posYKey] = y
+		LSet(f.posXKey, x)
+		LSet(f.posYKey, y)
 		self:Debug("Saved Position", a, x, y)
 	end
 end
 
 function Grid2Layout:ResetPosition()
 	local s = UIParent:GetEffectiveScale()
-	self.db.profile.PosX = UIParent:GetWidth() / 2 * s
-	self.db.profile.PosY = -UIParent:GetHeight() / 2 * s
-	self.db.profile.anchor = "TOPLEFT"
+	LSet("PosX", UIParent:GetWidth() / 2 * s)
+	LSet("PosY", -UIParent:GetHeight() / 2 * s)
+	LSet("anchor", "TOPLEFT")
 	self:RestorePosition()
 	self:SavePosition()
 end
 
 function Grid2Layout:ResetPetPosition()
 	local s = UIParent:GetEffectiveScale()
-	self.db.profile.PetPosX = UIParent:GetWidth() / 2 * s
-	self.db.profile.PetPosY = -UIParent:GetHeight() / 2 * s
-	self.db.profile.petAnchor = "TOPLEFT"
+	LSet("PetPosX", UIParent:GetWidth() / 2 * s)
+	LSet("PetPosY", -UIParent:GetHeight() / 2 * s)
+	LSet("petAnchor", "TOPLEFT")
 	self:RestorePosition()
 	if self.petFrame then
 		self:SavePosition(self.petFrame)
@@ -805,11 +844,12 @@ end
 
 -- Position one frame from its own DB keys, snapped to the physical pixel grid. Shared by both containers;
 -- the main frame's keys are the original literals, so restoring it is byte-for-byte the previous behavior.
-function Grid2Layout:RestoreFramePosition(f)
+function Grid2Layout:RestoreFramePosition(f, layoutOverrideName)
 	local p = self.db.profile
+	local name = layoutOverrideName or self.layoutName   -- read-only: preview passes the previewed name
 	local s = f:GetEffectiveScale()
-	local x = p[f.posXKey] / s
-	local y = p[f.posYKey] / s
+	local x = self:LayoutValue(name, f.posXKey) / s
+	local y = self:LayoutValue(name, f.posYKey) / s
 	if p.pixelPerfect ~= false then
 		local px = GetFramePixel(f)
 		if px then
@@ -817,7 +857,7 @@ function Grid2Layout:RestoreFramePosition(f)
 			y = math.floor(y / px + 0.5) * px
 		end
 	end
-	local a = p[f.anchorKey]
+	local a = self:LayoutValue(name, f.anchorKey)
 	f:ClearAllPoints()
 	f:SetPoint(a, x, y)
 	self:Debug("Restored Position", a, x, y)
@@ -832,12 +872,12 @@ function Grid2Layout:Scale()
 	-- Snap the grid's effective scale so one UI unit maps to a whole number of physical pixels; frame edges
 	-- then land exactly on the pixel grid instead of between pixels (avoids a 1px class-color sliver at
 	-- fractional scales). Monitor independent; no-op if the physical height can't be determined.
-	local ls = p.layoutScales[self.layoutName or "solo"] or 1
-	local base = p.ScaleSize * ls
+	local ls = p.layoutScales[self.layoutName or "solo"] or 1   -- per-layout MULTIPLIER; composes with the ScaleSize override
+	local base = LGet("ScaleSize") * ls
 	self.frame:SetScale(SnapScale(base))
 	if self.petFrame then
 		-- pet container follows the main scale unless given its own; snapped the same way
-		local pbase = p.petOwnScale and (p.PetScaleSize * ls) or base
+		local pbase = p.petOwnScale and (LGet("PetScaleSize") * ls) or base
 		self.petFrame:SetScale(SnapScale(pbase))
 	end
 	self:RestorePosition()

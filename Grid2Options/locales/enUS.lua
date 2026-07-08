@@ -65,6 +65,12 @@ L["Role Order"] = true
 L["Configure the tank/healer/dps ordering used by Role sort."] = true
 L["DPS"] = true
 
+L["Per-Layout Overrides"] = true
+L["Configure layout"] = true
+L["Pick which layout's settings to view and edit below."] = true
+L["Use separate settings for this layout"] = true
+L["When on, this layout uses its own position/scale/geometry below instead of the global settings."] = true
+
 L["Default Font"] = true
 
 L["Invert Bar Color"] = true

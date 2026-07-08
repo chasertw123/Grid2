@@ -872,3 +872,131 @@ for slot = 1, 3 do
 	}
 end
 Grid2Options:AddGeneralOptions("General", "Layout Settings", sortingOptions)
+
+-- ============================ Per-Layout Overrides ============================
+-- Each layout can optionally override its position/scale/geometry (main + pet). A dropdown picks WHICH layout
+-- to configure; a toggle enables that layout's override; the controls read/write THAT layout's override via the
+-- engine resolver (Grid2Layout:LayoutValue / SetLayoutValue). Editing a non-active layout is a pure data write
+-- (it applies when that layout next loads); editing the active layout drives a live refresh. The selected
+-- layout is a module-local, never stored in the profile.
+local floor = math.floor
+local OV_ANCHOR = {
+	["CENTER"] = L["CENTER"], ["TOP"] = L["TOP"], ["BOTTOM"] = L["BOTTOM"], ["LEFT"] = L["LEFT"], ["RIGHT"] = L["RIGHT"],
+	["TOPLEFT"] = L["TOPLEFT"], ["TOPRIGHT"] = L["TOPRIGHT"], ["BOTTOMLEFT"] = L["BOTTOMLEFT"], ["BOTTOMRIGHT"] = L["BOTTOMRIGHT"],
+}
+local OV_GROUPANCHOR = {
+	["TOPLEFT"] = L["TOPLEFT"], ["TOPRIGHT"] = L["TOPRIGHT"], ["BOTTOMLEFT"] = L["BOTTOMLEFT"], ["BOTTOMRIGHT"] = L["BOTTOMRIGHT"],
+}
+local selName  -- module-local: which layout the UI is currently configuring
+local function Sel() return selName or Grid2Layout.layoutName or "solo" end
+local function Ov() local lo = Grid2Layout.db.profile.layoutOverrides; return lo and lo[Sel()] end
+local function OvOff() local o = Ov(); return not (o and o.enabled) end
+local function IsActive(n) return n == (Grid2Layout.layoutName or "solo") end
+-- pet override controls only do anything when the matching GLOBAL pet toggle is on, so gate them on both.
+local function petPosGate() return OvOff() or not Grid2Layout.db.profile.petEnabled end
+local function petScaleGate() local p = Grid2Layout.db.profile; return OvOff() or not (p.petEnabled and p.petOwnScale) end
+local function petGeoGate() local p = Grid2Layout.db.profile; return OvOff() or not (p.petEnabled and p.petOwnGrowth) end
+
+local function EnableOverride(n, on)
+	local p = Grid2Layout.db.profile
+	p.layoutOverrides = p.layoutOverrides or {}
+	local o = p.layoutOverrides[n]
+	if on then
+		if not o then o = {}; p.layoutOverrides[n] = o end   -- lazy per-name table (no AceDB shared default)
+		o.enabled = true
+	elseif o then
+		o.enabled = false   -- keep stored values so re-enabling restores the user's tuning
+	end
+	if IsActive(n) then Grid2Layout:Scale(); Grid2Layout:ReloadLayout() end
+	if Grid2Options.LayoutTestRefresh then Grid2Options:LayoutTestRefresh() end
+end
+
+-- get: the selected layout's resolved value (override, else global fallback) so sliders always show a number.
+local function ovGet(key, xf)
+	return function() local v = Grid2Layout:LayoutValue(Sel(), key); if xf then return xf(v) end return v end
+end
+-- pet geometry get: fall back pet -> main so the inherited value shows even when the pet key is unset.
+local function ovGetPet(petKey, mainKey, xf)
+	return function()
+		local n = Sel()
+		local v = Grid2Layout:LayoutValue(n, petKey)
+		if v == nil then v = Grid2Layout:LayoutValue(n, mainKey) end
+		if xf then return xf(v) end return v
+	end
+end
+-- set: write to the selected layout; live-refresh only when it is the active layout.
+local function ovSet(key, refresh)
+	return function(_, v)
+		local n = Sel()
+		Grid2Layout:SetLayoutValue(n, key, v)
+		if IsActive(n) then refresh() end
+		if Grid2Options.LayoutTestRefresh then Grid2Options:LayoutTestRefresh() end
+	end
+end
+-- anchor set: re-express the stored offset against the new anchor (active layout only; needs the live rect).
+local function ovSetAnchor(key, getFrame)
+	return function(_, v)
+		local n = Sel()
+		Grid2Layout:SetLayoutValue(n, key, v)
+		if IsActive(n) then
+			local f = getFrame()
+			if f then Grid2Layout:SavePosition(f) end
+			Grid2Layout:RestorePosition()
+		end
+		if Grid2Options.LayoutTestRefresh then Grid2Options:LayoutTestRefresh() end
+	end
+end
+local function rInt(v) return floor(v + 0.5) end
+local function rPos() Grid2Layout:RestorePosition() end
+local function rScl() Grid2Layout:Scale() end
+local function rGeo() Grid2Layout:ReloadLayout() end
+
+Grid2Options:AddGeneralOptions("General", "Per-Layout Overrides", {
+	configureLayout = {
+		type = "select", order = 1, name = L["Configure layout"],
+		desc = L["Pick which layout's settings to view and edit below."],
+		values = function() local t = {} for n in pairs(Grid2Layout.layoutSettings) do t[n] = n end return t end,
+		get = function() return Sel() end,
+		set = function(_, v) selName = v end
+	},
+	useOverride = {
+		type = "toggle", order = 2, width = "full", name = L["Use separate settings for this layout"],
+		desc = L["When on, this layout uses its own position/scale/geometry below instead of the global settings."],
+		get = function() local o = Ov() return o and o.enabled end,
+		set = function(_, v) EnableOverride(Sel(), v) end
+	},
+	ovAnchor = { type = "select", order = 10, name = L["Layout Anchor"], disabled = OvOff, values = OV_ANCHOR,
+		get = ovGet("anchor"), set = ovSetAnchor("anchor", function() return Grid2Layout.frame end) },
+	ovPosX = { type = "range", order = 11, name = L["Horizontal Position"], softMin = -2048, softMax = 2048, step = 1, bigStep = 5,
+		disabled = OvOff, get = ovGet("PosX", rInt), set = ovSet("PosX", rPos) },
+	ovPosY = { type = "range", order = 12, name = L["Vertical Position"], softMin = -2048, softMax = 2048, step = 1, bigStep = 5,
+		disabled = OvOff, get = ovGet("PosY", rInt), set = ovSet("PosY", rPos) },
+	ovScale = { type = "range", order = 20, name = L["Scale"], min = 0.5, max = 2.0, step = 0.05, isPercent = true, width = "double",
+		disabled = OvOff, get = ovGet("ScaleSize"), set = ovSet("ScaleSize", rScl) },
+	ovHorizontal = { type = "toggle", order = 30, name = L["Horizontal groups"], disabled = OvOff,
+		get = ovGet("horizontal"), set = ovSet("horizontal", rGeo) },
+	ovGroupAnchor = { type = "select", order = 31, name = L["Group Anchor"], disabled = OvOff, values = OV_GROUPANCHOR,
+		get = ovGet("groupAnchor"), set = ovSet("groupAnchor", rGeo) },
+	ovPadding = { type = "range", order = 32, name = L["Padding"], min = 0, max = 20, step = 1, disabled = OvOff,
+		get = ovGet("Padding"), set = ovSet("Padding", rGeo) },
+	ovSpacing = { type = "range", order = 33, name = L["Spacing"], min = 0, max = 25, step = 1, disabled = OvOff,
+		get = ovGet("Spacing"), set = ovSet("Spacing", rGeo) },
+	ovPetHeader = { type = "header", order = 39, name = L["Pet Frames"] },
+	ovPetAnchor = { type = "select", order = 40, name = L["Pet Layout Anchor"], disabled = petPosGate, values = OV_ANCHOR,
+		get = ovGet("petAnchor"), set = ovSetAnchor("petAnchor", function() return Grid2Layout.petFrame end) },
+	ovPetPosX = { type = "range", order = 41, name = L["Pet Horizontal Position"], softMin = -2048, softMax = 2048, step = 1, bigStep = 5,
+		disabled = petPosGate, get = ovGet("PetPosX", rInt), set = ovSet("PetPosX", rPos) },
+	ovPetPosY = { type = "range", order = 42, name = L["Pet Vertical Position"], softMin = -2048, softMax = 2048, step = 1, bigStep = 5,
+		disabled = petPosGate, get = ovGet("PetPosY", rInt), set = ovSet("PetPosY", rPos) },
+	ovPetScale = { type = "range", order = 43, name = L["Pet Scale"], min = 0.5, max = 2.0, step = 0.05, isPercent = true,
+		disabled = petScaleGate, get = ovGet("PetScaleSize"), set = ovSet("PetScaleSize", rScl) },
+	ovPetHorizontal = { type = "toggle", order = 44, name = L["Horizontal groups"], disabled = petGeoGate,
+		get = function() local n = Sel() local h = Grid2Layout:LayoutValue(n, "petHorizontal") if h == nil then h = Grid2Layout:LayoutValue(n, "horizontal") end return h end,
+		set = ovSet("petHorizontal", rGeo) },
+	ovPetGroupAnchor = { type = "select", order = 45, name = L["Group Anchor"], disabled = petGeoGate, values = OV_GROUPANCHOR,
+		get = ovGetPet("petGroupAnchor", "groupAnchor"), set = ovSet("petGroupAnchor", rGeo) },
+	ovPetPadding = { type = "range", order = 46, name = L["Padding"], min = 0, max = 20, step = 1, disabled = petGeoGate,
+		get = ovGetPet("petPadding", "Padding"), set = ovSet("petPadding", rGeo) },
+	ovPetSpacing = { type = "range", order = 47, name = L["Spacing"], min = 0, max = 25, step = 1, disabled = petGeoGate,
+		get = ovGetPet("petSpacing", "Spacing"), set = ovSet("petSpacing", rGeo) },
+})
