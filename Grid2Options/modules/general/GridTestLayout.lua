@@ -24,16 +24,16 @@ local classList = CLASS_SORT_ORDER
 local classNames = LOCALIZED_CLASS_NAMES_MALE
 local slotCache = {}
 local WHITE = { r = 1, g = 1, b = 1 }
--- Stable random class per slot -> returns a localized class-name placeholder + that class's colour, so the
--- other cells demonstrate the class-coloured NAME rule (their names vary by class, like a real raid).
-local function GetSlotClass(gridKey, nx, ny)
+-- Emulated unit per slot (cached so it doesn't flicker): a random class (drives the class-coloured name) and a
+-- random health fraction 0.15-1.0 (drives the health-bar fill level). Surface-level fake data -- no live units.
+local function GetSlot(gridKey, nx, ny)
 	local key = gridKey .. nx .. ":" .. ny
-	local cls = slotCache[key]
-	if not cls then
-		cls = classList[random(#classList)]
-		slotCache[key] = cls
+	local s = slotCache[key]
+	if not s then
+		s = { cls = classList[random(#classList)], hp = random(15, 100) / 100 }
+		slotCache[key] = s
 	end
-	return (classNames and classNames[cls]) or cls, RAID_CLASS_COLORS[cls] or WHITE
+	return s
 end
 
 -- Toggle every real header (main + pet + spacer). Unchanged.
@@ -219,6 +219,7 @@ local function RenderGrid(grid)
 	local _, playerClass = UnitClass("player")
 	local playerColor = RAID_CLASS_COLORS[playerClass] or WHITE
 	local playerName = UnitName("player")
+	local playerHp = random(15, 100) / 100
 
 	local ux, uy, vx, vy, px, py, realCols, realRows =
 		LayoutGetVectors(groupAnchor, horizontal, Spacing, Spacing, width + Padding, height + Padding, grid.colCount, grid.rowCount)
@@ -240,18 +241,23 @@ local function RenderGrid(grid)
 				-- Follow the configured colouring rules: the health/background is the STATIC frameContentColor,
 				-- and the NAME text is CLASS-coloured. Player's cell shows their real name; the rest get a class
 				-- name placeholder in a stable random class colour so the class-coloured name is visible.
-				local content = frame.content
-				content:SetTexture(texture)
-				content:SetSize(iw, ih)
-				content:SetVertexColor(cc.r, cc.g, cc.b, cc.a or 1)  -- static configured background colour
-				local nameText, ncr, ncg, ncb
+				-- Emulated unit: a class-coloured name + a health bar (the static configured colour) filled to a
+				-- random health % over the darker frame backdrop, so cells look like real, varied raid frames.
+				local nameText, ncr, ncg, ncb, hp
 				if isMain and not playerDone then
 					playerDone = true
-					nameText, ncr, ncg, ncb = playerName, playerColor.r, playerColor.g, playerColor.b
+					nameText, ncr, ncg, ncb, hp = playerName, playerColor.r, playerColor.g, playerColor.b, playerHp
 				else
-					local cls, cclr = GetSlotClass(gridKey, nx, ny)
-					nameText, ncr, ncg, ncb = cls, cclr.r, cclr.g, cclr.b
+					local s = GetSlot(gridKey, nx, ny)
+					local clr = RAID_CLASS_COLORS[s.cls] or WHITE
+					nameText, ncr, ncg, ncb, hp = (classNames and classNames[s.cls]) or s.cls, clr.r, clr.g, clr.b, s.hp
 				end
+				local content = frame.content
+				content:SetTexture(texture)
+				content:ClearAllPoints()
+				content:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", (width - iw) / 2, (height - ih) / 2)
+				content:SetSize(iw, max(ih * hp, 1))  -- health bar filled bottom-up to the emulated health %
+				content:SetVertexColor(cc.r, cc.g, cc.b, cc.a or 1)  -- static configured health colour
 				frame.name:SetText(nameText or "")
 				frame.name:SetTextColor(ncr, ncg, ncb, 1)
 				frame:Show()
