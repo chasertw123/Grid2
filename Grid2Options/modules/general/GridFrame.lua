@@ -200,6 +200,14 @@ local function petRefreshSize()
 		Grid2Options:LayoutTestRefresh()
 	end
 end
+-- The background indicator owns the container color and repaints it on unit updates, so a pet background
+-- color change must rebuild its cache and repaint. Guarded: the user may have removed the indicator.
+local function petRefreshBackground()
+	local ind = Grid2:GetIndicatorByName("background")
+	if ind then
+		Grid2Options:RefreshIndicator(ind, "Update")
+	end
+end
 
 Grid2Options:AddGeneralOptions("General", "Pet Frames", {
 	petEnabled = {
@@ -208,10 +216,12 @@ Grid2Options:AddGeneralOptions("General", "Pet Frames", {
 		width = "full",
 		name = L["Customize pet frames separately"],
 		desc = L["When enabled, pet frames use these settings instead of the normal frame settings."],
+		disabled = InCombatLockdown,
 		get = petEnabled,
 		set = function(_, v)
 			Grid2Frame.db.profile.pet.enabled = v
 			petRefreshSize()
+			petRefreshBackground()
 		end
 	},
 	petTexture = {
@@ -329,6 +339,7 @@ Grid2Options:AddGeneralOptions("General", "Pet Frames", {
 			end
 			c.r, c.g, c.b, c.a = r, g, b, a
 			Grid2Frame:LayoutFrames()
+			petRefreshBackground()
 		end
 	},
 	petMouseoverHighlight = {
