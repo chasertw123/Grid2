@@ -21,16 +21,19 @@ local grids = { mainGrid, petGrid }
 -- Fill colours: the player's own cell shows their real name + class colour; every other spot gets a stable
 -- random class colour so the preview looks like a populated raid (cached per slot so it doesn't flicker).
 local classList = CLASS_SORT_ORDER
+local classNames = LOCALIZED_CLASS_NAMES_MALE
 local slotCache = {}
 local WHITE = { r = 1, g = 1, b = 1 }
-local function GetSlotColor(gridKey, nx, ny)
+-- Stable random class per slot -> returns a localized class-name placeholder + that class's colour, so the
+-- other cells demonstrate the class-coloured NAME rule (their names vary by class, like a real raid).
+local function GetSlotClass(gridKey, nx, ny)
 	local key = gridKey .. nx .. ":" .. ny
 	local cls = slotCache[key]
 	if not cls then
 		cls = classList[random(#classList)]
 		slotCache[key] = cls
 	end
-	return RAID_CLASS_COLORS[cls] or WHITE
+	return (classNames and classNames[cls]) or cls, RAID_CLASS_COLORS[cls] or WHITE
 end
 
 -- Toggle every real header (main + pet + spacer). Unchanged.
@@ -234,20 +237,23 @@ local function RenderGrid(grid)
 				frame:SetFrameLevel(frameLevel)
 				frame:SetBackdropColor(fc.r, fc.g, fc.b, fc.a or 1)        -- inner ring == configured frameColor
 				frame:SetBackdropBorderColor(fc.r, fc.g, fc.b, fc.a or 1)  -- visible edge; transparent edge looked spaced
-				-- the player's own cell uses their real name + class colour; every other spot a random class colour
-				local fr, fg, fb, nameText
-				if isMain and not playerDone then
-					playerDone = true
-					fr, fg, fb, nameText = playerColor.r, playerColor.g, playerColor.b, playerName
-				else
-					local sc = GetSlotColor(gridKey, nx, ny)
-					fr, fg, fb = sc.r, sc.g, sc.b
-				end
+				-- Follow the configured colouring rules: the health/background is the STATIC frameContentColor,
+				-- and the NAME text is CLASS-coloured. Player's cell shows their real name; the rest get a class
+				-- name placeholder in a stable random class colour so the class-coloured name is visible.
 				local content = frame.content
 				content:SetTexture(texture)
 				content:SetSize(iw, ih)
-				content:SetVertexColor(fr, fg, fb, cc.a or 1)
+				content:SetVertexColor(cc.r, cc.g, cc.b, cc.a or 1)  -- static configured background colour
+				local nameText, ncr, ncg, ncb
+				if isMain and not playerDone then
+					playerDone = true
+					nameText, ncr, ncg, ncb = playerName, playerColor.r, playerColor.g, playerColor.b
+				else
+					local cls, cclr = GetSlotClass(gridKey, nx, ny)
+					nameText, ncr, ncg, ncb = cls, cclr.r, cclr.g, cclr.b
+				end
 				frame.name:SetText(nameText or "")
+				frame.name:SetTextColor(ncr, ncg, ncb, 1)
 				frame:Show()
 			end
 			i = i + 1
