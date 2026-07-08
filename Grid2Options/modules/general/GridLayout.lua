@@ -802,3 +802,73 @@ Grid2Options:AddGeneralOptions("Pets", "Pet Position", {
 		end
 	}
 })
+
+-- ============================ Party/raid sorting ============================
+-- Appended into the existing "Layout Settings" section (AddGeneralOptions merges args). Drives the engine in
+-- Grid2/GridPartySort.lua via profile.sortBy / sortReverse / sortRoleOrder; every setter routes through
+-- ReloadLayout (itself combat-queued), which re-applies the sort after rebuilding the layout.
+local ROLE_VALUES = { TANK = L["Tank"], HEALER = L["Healer"], DAMAGER = L["DPS"] }
+-- Same lazily-created, profile-owned role order the engine uses (avoids AceDB nested-default aliasing).
+local function GetRoleOrder()
+	local p = Grid2Layout.db.profile
+	if type(p.sortRoleOrder) ~= "table" or #p.sortRoleOrder ~= 3 then
+		p.sortRoleOrder = {"TANK", "HEALER", "DAMAGER"}
+	end
+	return p.sortRoleOrder
+end
+local function sortDisabled() return (Grid2Layout.db.profile.sortBy or "NONE") == "NONE" end
+local function roleDisabled() return (Grid2Layout.db.profile.sortBy or "NONE") ~= "ROLE" end
+
+local sort_o = order_layout + 8  -- after Grow Direction / Frame lock, before the display/anchor sections
+local sortingOptions = {
+	sortingHeader = { type = "header", order = sort_o, name = L["Sorting"] },
+	sortBy = {
+		type = "select",
+		order = sort_o + 0.1,
+		name = L["Sort By"],
+		desc = L["Order units in the current layout by name or by role (tank/healer/dps)."],
+		values = { NONE = L["Layout Default"], NAME = L["Name"], ROLE = L["Role"] },
+		get = function() return Grid2Layout.db.profile.sortBy or "NONE" end,
+		set = function(_, v)
+			Grid2Layout.db.profile.sortBy = v
+			Grid2Layout:ReloadLayout()
+			if Grid2Options.LayoutTestRefresh then Grid2Options:LayoutTestRefresh() end
+		end
+	},
+	sortReverse = {
+		type = "toggle",
+		order = sort_o + 0.2,
+		name = L["Reverse order"],
+		desc = L["Invert the chosen sort order."],
+		disabled = sortDisabled,
+		get = function() return Grid2Layout.db.profile.sortReverse end,
+		set = function(_, v)
+			Grid2Layout.db.profile.sortReverse = v
+			Grid2Layout:ReloadLayout()
+			if Grid2Options.LayoutTestRefresh then Grid2Options:LayoutTestRefresh() end
+		end
+	}
+}
+-- Three "Role Order" dropdowns. Picking a role in a slot swaps it with wherever that role currently sits, so
+-- the stored array stays a valid permutation of the three roles (no dupes, none missing) with no validation UI.
+for slot = 1, 3 do
+	sortingOptions["roleSlot" .. slot] = {
+		type = "select",
+		order = sort_o + 0.2 + slot * 0.1,
+		width = "half",
+		name = slot == 1 and L["Role Order"] or " ",
+		desc = L["Configure the tank/healer/dps ordering used by Role sort."],
+		values = ROLE_VALUES,
+		disabled = roleDisabled,
+		get = function() return GetRoleOrder()[slot] end,
+		set = function(_, v)
+			local order = GetRoleOrder()
+			local cur
+			for i = 1, #order do if order[i] == v then cur = i break end end
+			if cur then order[cur], order[slot] = order[slot], v end  -- swap => always a valid permutation
+			Grid2Layout:ReloadLayout()
+			if Grid2Options.LayoutTestRefresh then Grid2Options:LayoutTestRefresh() end
+		end
+	}
+end
+Grid2Options:AddGeneralOptions("General", "Layout Settings", sortingOptions)

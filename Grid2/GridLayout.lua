@@ -156,6 +156,10 @@ Grid2Layout.defaultDB = {
 		},
 		layoutScales = {},
 		horizontal = true,
+		-- Party/raid sorting (GridPartySort.lua). sortRoleOrder is created lazily (not here) to avoid AceDB
+		-- sharing a nested-table default by reference across profiles.
+		sortBy = "NONE",       -- "NONE" | "NAME" | "ROLE"
+		sortReverse = false,
 		clamp = true,
 		FrameLock = false,
 		ClickThrough = false,

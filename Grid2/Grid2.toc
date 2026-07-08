@@ -30,6 +30,7 @@ GridRoster.lua
 GridLayout.lua
 GridLayoutLayouts.lua
 GridFreeLayout.lua
+GridPartySort.lua
 GridFrame.lua
 GridUnitPopup.lua
 GridIndicator.lua

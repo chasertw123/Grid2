@@ -55,6 +55,16 @@ L["Pet Growth"] = true
 L["Use separate pet growth"] = true
 L["Let pet groups grow in their own direction/anchor instead of following the main grid."] = true
 
+L["Sorting"] = true
+L["Sort By"] = true
+L["Order units in the current layout by name or by role (tank/healer/dps)."] = true
+L["Layout Default"] = true
+L["Reverse order"] = true
+L["Invert the chosen sort order."] = true
+L["Role Order"] = true
+L["Configure the tank/healer/dps ordering used by Role sort."] = true
+L["DPS"] = true
+
 L["Default Font"] = true
 
 L["Invert Bar Color"] = true
