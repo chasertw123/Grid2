@@ -17,7 +17,21 @@ local layoutName  -- name of the layout being previewed (nil => test off)
 local mainGrid = { isPet = false, frames = {}, cols = {}, colCount = 0, rowCount = 0, active = false }
 local petGrid  = { isPet = true,  frames = {}, cols = {}, colCount = 0, rowCount = 0, active = false }
 local grids = { mainGrid, petGrid }
-local TINT = 0.25  -- strength of the per-group readability tint over the real content colour (0 = pure real)
+
+-- Fill colours: the player's own cell shows their real name + class colour; every other spot gets a stable
+-- random class colour so the preview looks like a populated raid (cached per slot so it doesn't flicker).
+local classList = CLASS_SORT_ORDER
+local slotCache = {}
+local WHITE = { r = 1, g = 1, b = 1 }
+local function GetSlotColor(gridKey, nx, ny)
+	local key = gridKey .. nx .. ":" .. ny
+	local cls = slotCache[key]
+	if not cls then
+		cls = classList[random(#classList)]
+		slotCache[key] = cls
+	end
+	return RAID_CLASS_COLORS[cls] or WHITE
+end
 
 -- Toggle every real header (main + pet + spacer). Unchanged.
 function Grid2Layout:ShowFrames(enabled)
@@ -80,6 +94,14 @@ local function LayoutGetTestFrame(grid, i)
 		local t = f:CreateTexture(nil, "ARTWORK")
 		t:SetPoint("CENTER", f, "CENTER")
 		f.content = t
+		local fs = f:CreateFontString(nil, "OVERLAY")
+		fs:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1)
+		fs:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1)
+		fs:SetJustifyH("CENTER")
+		fs:SetJustifyV("MIDDLE")
+		fs:SetFont(STANDARD_TEXT_FONT, 10, "OUTLINE")
+		fs:SetTextColor(1, 1, 1, 1)
+		f.name = fs
 		pool[i] = f
 	end
 	f:SetBackdrop(sharedBackdrop)
@@ -135,7 +157,6 @@ end
 -- Column membership per grid. Pet groups form the separate pet grid only when the feature is enabled AND the
 -- pet container exists; otherwise they fold into the main grid exactly as before. Rebuilt every refresh so a
 -- petEnabled toggle (which only triggers a refresh, not a reload) re-partitions correctly.
-local colorsTable = { partypet = { r = 0, g = 1, b = 0 }, raidpet = { r = 0, g = 1, b = 0 } }
 local function LayoutBuild()
 	mainGrid.active, petGrid.active = false, false
 	mainGrid.colCount, mainGrid.rowCount, mainGrid.col = 0, 0, 1
@@ -158,11 +179,9 @@ local function LayoutBuild()
 		local maxColumns    = l.maxColumns    or defaults.maxColumns    or 1
 		grid.colCount = grid.colCount + maxColumns
 		grid.rowCount = max(grid.rowCount, unitPerColumn)
-		local c = colorsTable[ptype] or RAID_CLASS_COLORS[CLASS_SORT_ORDER[((i - 1) % #CLASS_SORT_ORDER) + 1]]
 		for _ = 1, maxColumns do
 			local col = grid.cols[grid.col] or {}
 			col.spacer = isSpacer
-			col.tr, col.tg, col.tb = c.r, c.g, c.b
 			grid.cols[grid.col] = col
 			grid.col = grid.col + 1
 		end
@@ -189,6 +208,14 @@ local function RenderGrid(grid)
 	local iw = max(width  - inset, 1)
 	local ih = max(height - inset, 1)
 	local frameLevel = f0:GetFrameLevel() + 1
+	-- the player occupies the first real cell of the main grid (name + real class colour); the rest are filled
+	-- with random class colours.
+	local isMain = grid == mainGrid
+	local gridKey = grid.isPet and "p" or "m"
+	local playerDone = false
+	local _, playerClass = UnitClass("player")
+	local playerColor = RAID_CLASS_COLORS[playerClass] or WHITE
+	local playerName = UnitName("player")
 
 	local ux, uy, vx, vy, px, py, realCols, realRows =
 		LayoutGetVectors(groupAnchor, horizontal, Spacing, Spacing, width + Padding, height + Padding, grid.colCount, grid.rowCount)
@@ -205,15 +232,22 @@ local function RenderGrid(grid)
 				frame:SetPoint("TOPLEFT", f0, "TOPLEFT", nx * ux + ny * vx + px, -(nx * uy + ny * vy + py))
 				frame:SetSize(width, height)
 				frame:SetFrameLevel(frameLevel)
-				frame:SetBackdropColor(fc.r, fc.g, fc.b, fc.a)  -- outer ring == real frameColor
-				frame:SetBackdropBorderColor(0, 0, 0, 0)        -- resting edge (no border indicator active)
+				frame:SetBackdropColor(fc.r, fc.g, fc.b, fc.a or 1)        -- inner ring == configured frameColor
+				frame:SetBackdropBorderColor(fc.r, fc.g, fc.b, fc.a or 1)  -- visible edge; transparent edge looked spaced
+				-- the player's own cell uses their real name + class colour; every other spot a random class colour
+				local fr, fg, fb, nameText
+				if isMain and not playerDone then
+					playerDone = true
+					fr, fg, fb, nameText = playerColor.r, playerColor.g, playerColor.b, playerName
+				else
+					local sc = GetSlotColor(gridKey, nx, ny)
+					fr, fg, fb = sc.r, sc.g, sc.b
+				end
 				local content = frame.content
 				content:SetTexture(texture)
 				content:SetSize(iw, ih)
-				content:SetVertexColor(
-					cc.r * (1 - TINT) + col.tr * TINT,
-					cc.g * (1 - TINT) + col.tg * TINT,
-					cc.b * (1 - TINT) + col.tb * TINT, cc.a or 1)
+				content:SetVertexColor(fr, fg, fb, cc.a or 1)
+				frame.name:SetText(nameText or "")
 				frame:Show()
 			end
 			i = i + 1
