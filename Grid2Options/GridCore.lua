@@ -50,6 +50,11 @@ function Grid2Options:Initialize()
 
 	LibStub("AceConfig-3.0"):RegisterOptionsTable("Grid2", self.options)
 	ACD3 = ACD3 or LibStub("AceConfigDialog-3.0")
+	-- Open the standalone /grid2 window larger than AceConfigDialog's 700x500 default. Clamped to the
+	-- screen so it never overflows, and floored at the old default so it is never smaller than before.
+	ACD3:SetDefaultSize("Grid2",
+		math.max(700, math.min(900, GetScreenWidth() - 40)),
+		math.max(500, math.min(680, GetScreenHeight() - 40)))
 	local sections = self.options.args
 	ACD3:AddToBlizOptions("Grid2", sections.general.name, "Grid2", "general")
 	ACD3:AddToBlizOptions("Grid2", sections.indicators.name, "Grid2", "indicators")
