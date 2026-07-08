@@ -358,8 +358,15 @@ function Grid2Layout:PlaceGroup(frame, groupNumber)
 	-- everything else stays on the main frame. Each container keeps its own placement chain so the first
 	-- group of each is corner-anchored and the rest chain off the previous one. prev==nil detects "first".
 	local usePet = settings.petEnabled and self.petFrame and frame.isPetHeader
-	local container = usePet and self.petFrame or self.frame
-	local prev = usePet and previousPetFrame or previousFrame
+	-- Explicit if/else, NOT `usePet and X or Y`: for the first pet header previousPetFrame is nil, and
+	-- `(usePet and nil) or previousFrame` would wrongly fall through to the main grid's last header,
+	-- anchoring the pet group to the main grid instead of the pet container.
+	local container, prev
+	if usePet then
+		container, prev = self.petFrame, previousPetFrame
+	else
+		container, prev = self.frame, previousFrame
+	end
 	local horizontal = settings.horizontal
 	local vertical = not horizontal
 	local padding = settings.Padding
