@@ -11,7 +11,7 @@
 ## OptionalDeps: Ace3, Clique
 ## LoadOnDemand: 0
 ## DefaultState: enabled
-## SavedVariables: Grid2DB
+## SavedVariables: Grid2DB, Grid2CastDebug
 
 ## X-Date: 2022-06-19 @ 07:55 PM |cff808080UTC|r
 ## X-Credits: Michael, Pastamancer & Maia, Jerry, Toadkiller
