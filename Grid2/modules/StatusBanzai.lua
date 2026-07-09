@@ -9,6 +9,7 @@ local UnitExists = UnitExists
 local UnitCanAttack = UnitCanAttack
 local UnitCastingInfo = UnitCastingInfo
 local UnitChannelInfo = UnitChannelInfo
+local GetSpellInfo = GetSpellInfo
 local next = next
 local _
 
@@ -75,6 +76,10 @@ local function SearchEnemyUnits()
 	for _, unit in next, extra_units do
 		CheckEnemyUnit(unit)
 	end
+	for i = 1, 40 do -- also every visible enemy nameplate, so casters nobody is targeting are still seen
+		local u = "nameplate" .. i
+		if UnitExists(u) then CheckEnemyUnit(u) end
+	end
 end
 
 local function TimerEvent()
@@ -125,15 +130,24 @@ local function status_SetUpdateRate(self, delay)
 end
 
 -- banzai status
+-- On this server SPELL_CAST_START carries no target, so the victim is only known at SPELL_CAST_SUCCESS (fires
+-- at completion for cast-time spells, at channel-start for channels, immediately for instants). We attribute
+-- the cast to that dest (btgt) and, when there is no live cast bar to read, flash the spell icon for DISPLAY.
+local DISPLAY = 2 -- seconds to show a non-channel cast icon on the victim's frame
 local bsrc, buni, bgid, bdur, bexp, bico = {}, {}, {}, {}, {}, {}
+local btgt, bspl = {}, {} -- btgt: enemyGUID -> the member the cast landed on (combat-log dest); bspl: enemyGUID -> spellID
 
 do
 	local e = {}
-	e.SPELL_CAST_START = function(g)
+	e.SPELL_CAST_START = function(g, destGUID, spellId)
 		bsrc[g] = UnitCastingInfo
+		btgt[g] = destGUID and Grid2:GetUnitidByGUID(destGUID)
+		bspl[g] = spellId
 	end
-	e.SPELL_CAST_SUCCESS = function(g)
+	e.SPELL_CAST_SUCCESS = function(g, destGUID, spellId)
 		bsrc[g] = UnitChannelInfo
+		btgt[g] = destGUID and Grid2:GetUnitidByGUID(destGUID)
+		bspl[g] = spellId
 	end
 	e.SPELL_CAST_INTERRUPTED = function(g)
 		if g then
@@ -146,12 +160,11 @@ do
 	end
 	e.SPELL_MISSED = e.SPELL_CAST_INTERRUPTED
 	e.UNIT_DIED = e.SPELL_CAST_INTERRUPTED
-	function Banzai.CombatLogEvent(_, event, sourceGUID)
+	function Banzai.CombatLogEvent(_, event, sourceGUID, _, _, destGUID, _, _, spellId)
 		local action = e[event]
 		if action then
-			local unit = Grid2:GetUnitidByGUID(sourceGUID)
-			if not unit then
-				action(sourceGUID)
+			if not Grid2:GetUnitidByGUID(sourceGUID) then -- source is an enemy, not one of our own units
+				action(sourceGUID, destGUID, spellId)
 			end
 		end
 	end
@@ -166,10 +179,18 @@ function Banzai:Update()
 		end
 	end
 	for g, func in next, bsrc do -- Search new banzais
-		local unit = tguids[g]
+		local unit = btgt[g] -- the member the cast landed on (combat-log destination; only SUCCESS sets this)
 		if unit then
-			local _, _, _, ico, _, et = func(sguids[g])
-			et = et and et / 1000 or ct + 0.25
+			local mob = sguids[g]
+			local ico, et
+			if mob then _, _, _, ico, _, et = func(mob) end
+			if et then
+				et = et / 1000 -- a live channel is in progress: show for its real remaining time
+			else -- instant or a cast-time spell reported at completion: flash the spell icon briefly
+				local _, _, sico = GetSpellInfo(bspl[g])
+				ico = ico or sico
+				et = ct + DISPLAY
+			end
 			bgid[g] = unit
 			buni[unit] = g
 			bdur[unit] = et - ct
@@ -179,12 +200,16 @@ function Banzai:Update()
 		end
 	end
 	wipe(bsrc)
+	wipe(btgt)
+	wipe(bspl)
 end
 
 function Banzai:ClearIndicators()
 	wipe(bgid)
 	wipe(bico)
 	wipe(bsrc)
+	wipe(btgt)
+	wipe(bspl)
 	wipe(bdur)
 	wipe(bexp)
 	for unit in next, buni do
