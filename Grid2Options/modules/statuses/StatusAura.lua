@@ -281,12 +281,16 @@ function Grid2Options:MakeStatusAuraDescriptionOptions(status, options, optionPa
 	local tip = Grid2Options.Tooltip
 	tip:ClearLines()
 	tip:SetHyperlink("spell:" .. spellID)
-	if tip:NumLines() > 1 then
+	-- read the last tooltip line by name: the cache above only holds 5 lines, but SetHyperlink can produce
+	-- more (long custom-spell tooltips), which made tip[tip:NumLines()] nil and crashed the options build.
+	local n = tip:NumLines()
+	local line = n > 1 and _G["Grid2OptionsTooltipTextLeft" .. n]
+	if line then
 		options.titleDesc = {
 			type = "description",
 			order = 1.2,
 			fontSize = "small",
-			name = tip[tip:NumLines()]:GetText()
+			name = line:GetText()
 		}
 	end
 end
