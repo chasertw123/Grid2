@@ -242,7 +242,10 @@ function Grid2Options:MakeStatusesOptions(options)
 	for baseKey, dbx in pairs(statuses) do
 		local status = Grid2.statuses[baseKey]
 		if status then
-			self:MakeStatusOptions(status)
+			-- isolate each status: a crash building one must not abort the whole options build (which would
+			-- also skip MakeIndicatorsOptions and hide every indicator tab)
+			local ok, err = pcall(self.MakeStatusOptions, self, status)
+			if not ok then Grid2:Print("|cffff4040Grid2 options error [status " .. tostring(baseKey) .. "]:|r " .. tostring(err)) end
 		end
 	end
 end
