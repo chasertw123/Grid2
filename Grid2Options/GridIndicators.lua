@@ -33,6 +33,8 @@ function Grid2Options:AddIndicatorOptions(indicator, statusOptions, layoutOption
 	if layoutOptions then
 		options["layout"] = {type = "group", order = 30, name = L["Layout"], args = layoutOptions}
 	end
+	self:MakeIndicatorLoadOptions(indicator, options) -- re-add here too: AddIndicatorOptions wipes options and is
+	-- called on its own during refreshes, which was dropping the Load tab added by MakeIndicatorOptions
 end
 
 -- Don't remove options param (openmanager hooks this function and needs this parameter)
@@ -56,6 +58,61 @@ function Grid2Options:MakeIndicatorOptions(indicator)
 		args = options
 	}
 	self:MakeIndicatorChildOptions(indicator, options)
+	self:MakeIndicatorLoadOptions(indicator, options)
+end
+
+-- Load filter tab (Player Class + Unit Type) -- added to every indicator
+do
+	local classValues = {}
+	for class, name in pairs(LOCALIZED_CLASS_NAMES_MALE) do
+		classValues[class] = name
+	end
+	local unitValues = { player = "Player (self only)", players = "Players (incl. self)", pet = "Pets" }
+
+	local function Load(indicator)
+		indicator.dbx.load = indicator.dbx.load or {}
+		return indicator.dbx.load
+	end
+	local function Apply()
+		Grid2Frame:UpdateIndicators()
+	end
+
+	function Grid2Options:MakeIndicatorLoadOptions(indicator, options)
+		options.load = {
+			type = "group", order = 40, name = "Load",
+			args = {
+				classToggle = {
+					type = "toggle", order = 1, width = "full",
+					name = "Only load for your class",
+					desc = "Load this indicator only when your own character is one of the selected classes.",
+					get = function() local d = indicator.dbx.load; return (d and d.classEnabled) or false end,
+					set = function(_, v) Load(indicator).classEnabled = v or nil; Apply() end,
+				},
+				classList = {
+					type = "multiselect", order = 2, name = "Classes",
+					hidden = function() local d = indicator.dbx.load; return not (d and d.classEnabled) end,
+					values = classValues,
+					get = function(_, k) local d = indicator.dbx.load; return (d and d.classes and d.classes[k]) or false end,
+					set = function(_, k, v) local d = Load(indicator); d.classes = d.classes or {}; d.classes[k] = v or nil; Apply() end,
+				},
+				sep = { type = "header", order = 3, name = "" },
+				unitToggle = {
+					type = "toggle", order = 4, width = "full",
+					name = "Only show on certain unit types",
+					desc = "Show this indicator only on frames whose unit matches the selected types.",
+					get = function() local d = indicator.dbx.load; return (d and d.unitEnabled) or false end,
+					set = function(_, v) Load(indicator).unitEnabled = v or nil; Apply() end,
+				},
+				unitList = {
+					type = "multiselect", order = 5, name = "Unit Types",
+					hidden = function() local d = indicator.dbx.load; return not (d and d.unitEnabled) end,
+					values = unitValues,
+					get = function(_, k) local d = indicator.dbx.load; return (d and d.units and d.units[k]) or false end,
+					set = function(_, k, v) local d = Load(indicator); d.units = d.units or {}; d.units[k] = v or nil; Apply() end,
+				},
+			},
+		}
+	end
 end
 
 -- Remove indicator options from AceConfigTable
@@ -93,7 +150,8 @@ function Grid2Options:MakeIndicatorsOptions(options)
 		if self.typeMakeOptions[dbx.type] then -- filter bar-color&text-color indicators
 			local indicator = Grid2.indicators[baseKey]
 			if indicator then
-				self:MakeIndicatorOptions(indicator)
+				local ok, err = pcall(self.MakeIndicatorOptions, self, indicator)
+				if not ok then Grid2:Print("|cffff4040Grid2 options error [indicator " .. tostring(baseKey) .. "]:|r " .. tostring(err)) end
 			end
 		end
 	end

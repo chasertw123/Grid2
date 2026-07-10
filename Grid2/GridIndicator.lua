@@ -88,8 +88,37 @@ function indicator:GetCurrentStatus(unit)
 	end
 end
 
+-- Load filter: gate whether this indicator renders on a given frame/unit.
+-- classEnabled -> only when the PLAYER's own class is selected (global); unitEnabled -> only on frames whose
+-- unit type (player / players / pet) is selected (per-frame). No dbx.load means "always show" (compatible).
+local UnitIsUnit = UnitIsUnit
+function indicator:LoadAllows(parent, unit)
+	local load = self.dbx and self.dbx.load
+	if not load then return true end
+	if load.classEnabled then
+		local classes = load.classes
+		if not (classes and classes[Grid2.playerClass]) then return false end
+	end
+	if load.unitEnabled then
+		local units = load.units
+		local ok
+		if parent.isPet then
+			ok = units and units.pet
+		else -- a player frame matches "players" (any player, incl. you) or "player" when it's your own frame
+			ok = units and (units.players or (units.player and UnitIsUnit(unit, "player")))
+		end
+		if not ok then return false end
+	end
+	return true
+end
+
 -- Update functions
 function indicator:UpdateBlink(parent, unit)
+	if not self:LoadAllows(parent, unit) then
+		local func = self.GetBlinkFrame
+		if func then Grid2Frame:SetBlinkEffect(func(self, parent), false) end
+		return self:OnUpdate(parent, unit, nil)
+	end
 	local status, state = self:GetCurrentStatus(unit)
 	local func = self.GetBlinkFrame
 	if func then
@@ -99,6 +128,9 @@ function indicator:UpdateBlink(parent, unit)
 end
 
 function indicator:UpdateNoBlink(parent, unit)
+	if not self:LoadAllows(parent, unit) then
+		return self:OnUpdate(parent, unit, nil)
+	end
 	self:OnUpdate(parent, unit, self:GetCurrentStatus(unit))
 end
 

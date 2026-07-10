@@ -883,6 +883,17 @@ L["Use alternate icons"] = true
 L["Show everywhere"] = true
 L["Show even when not in a dungeon"] = true
 
+-- indicator load filter
+L["Load"] = true
+L["Classes"] = true
+L["Player"] = true
+L["Players"] = true
+L["Unit Types"] = true
+L["Only load for your class"] = true
+L["Only show on certain unit types"] = true
+L["Load this indicator only when your own character is one of the selected classes."] = true
+L["Show this indicator only on frames whose unit matches the selected types."] = true
+
 -- status descriptions
 L["highlights your target"] = true
 L["hostile casts against raid members"] = true
