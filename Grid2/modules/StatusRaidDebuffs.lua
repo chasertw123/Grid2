@@ -42,7 +42,7 @@ function Grid2:GetMapNameByID(id)
 	return BZ[GSRD.mapID_to_engMapName[id]]
 end
 
-frame:SetScript("OnEvent", function(self, event, unit)
+local function ScanUnit(unit)
 	local index = 1
 	while true do
 		local name, _, te, co, ty, du, ex, _, _, _, id = UnitDebuff(unit, index)
@@ -60,6 +60,9 @@ frame:SetScript("OnEvent", function(self, event, unit)
 	for status in next, statuses do
 		status:UpdateState(unit)
 	end
+end
+frame:SetScript("OnEvent", function(_, _, unit)
+	ScanUnit(unit)
 end)
 
 function GSRD:OnModuleEnable()
@@ -122,6 +125,15 @@ function GSRD:Grid_UnitLeft(_, unit)
 	end
 end
 
+-- On a roster reindex a survivor shifts into a still-occupied token; drop the previous occupant's cached
+-- debuff state and re-scan so the new occupant's own debuffs show immediately instead of the stale ones.
+function GSRD:Grid_UnitUpdated(_, unit)
+	for status in next, statuses do
+		status:ResetState(unit)
+	end
+	ScanUnit(unit)
+end
+
 local class = {
 	GetColor = Grid2.statusLibrary.GetColor,
 	IsActive = function(self, unit) return self.states[unit] end,
@@ -172,6 +184,7 @@ function class:OnEnable()
 	if not next(statuses) then
 		GSRD:RegisterEvent("ZONE_CHANGED_NEW_AREA", "UpdateZoneSpells")
 		GSRD:RegisterMessage("Grid_UnitLeft")
+		GSRD:RegisterMessage("Grid_UnitUpdated")
 	end
 	statuses[self] = true
 	self:LoadZoneSpells()
@@ -183,6 +196,7 @@ function class:OnDisable()
 	if not next(statuses) then
 		GSRD:UnregisterEvent("ZONE_CHANGED_NEW_AREA")
 		GSRD:UnregisterMessage("Grid_UnitLeft")
+		GSRD:UnregisterMessage("Grid_UnitUpdated")
 		GSRD:ResetZoneSpells()
 		GSRD:UpdateEvents()
 	end

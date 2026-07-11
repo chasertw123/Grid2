@@ -60,8 +60,19 @@ function Resurrection:UNIT_HEALTH(event, unit)
 	end
 end
 
+-- On a roster reindex a survivor shifts into a still-occupied token; drop the previous occupant's cached
+-- resurrection state so the new occupant does not inherit a phantom "Reviving" indicator. An ongoing res on
+-- the moved player is re-flagged by the next ResComm callback / UNIT_HEALTH.
+function Resurrection:Grid_UnitLeft(_, unit)
+	res_cache[unit] = nil
+	res_time[unit] = nil
+end
+Resurrection.Grid_UnitUpdated = Resurrection.Grid_UnitLeft
+
 function Resurrection:OnEnable()
 	self:RegisterEvent("UNIT_HEALTH")
+	self:RegisterMessage("Grid_UnitLeft")
+	self:RegisterMessage("Grid_UnitUpdated")
 	LRC.RegisterCallback(self, "ResComm_ResStart")
 	LRC.RegisterCallback(self, "ResComm_ResEnd")
 	LRC.RegisterCallback(self, "ResComm_CanRes")
@@ -95,8 +106,10 @@ end
 --Fired when someone can use a soulstone or ankh.
 function Resurrection:ResComm_CanRes(event, name, typeToken, typeString)
 	local unit = Grid2:GetUnitByFullName(name)
-	res_cache[name] = typeString
-	self:UpdateIndicators(unit)
+	if unit then -- key by token (every reader indexes res_cache by unit token, not name)
+		res_cache[unit] = typeString
+		self:UpdateIndicators(unit)
+	end
 end
 
 --Fired when someone actually sees the accept resurrection box.
@@ -114,7 +127,10 @@ function Resurrection:ResComm_ResExpired(event, name)
 end
 
 function Resurrection:OnDisable()
+	self:UnregisterMessage("Grid_UnitLeft")
+	self:UnregisterMessage("Grid_UnitUpdated")
 	wipe(res_cache)
+	wipe(res_time)
 end
 
 function Resurrection:IsActive(unit)

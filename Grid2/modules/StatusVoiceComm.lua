@@ -8,16 +8,22 @@ function Voice:Grid_UnitLeft(_, unit)
 	cache[unit] = nil
 end
 
+-- On a roster reindex a survivor can shift into a still-occupied token; clear the stale "talking" state so
+-- the new occupant does not inherit it (mirrors Grid_UnitLeft).
+Voice.Grid_UnitUpdated = Voice.Grid_UnitLeft
+
 function Voice:OnEnable()
 	self:RegisterEvent("VOICE_START")
 	self:RegisterEvent("VOICE_STOP")
 	self:RegisterMessage("Grid_UnitLeft")
+	self:RegisterMessage("Grid_UnitUpdated")
 end
 
 function Voice:OnDisable()
 	self:UnregisterEvent("VOICE_START")
 	self:UnregisterEvent("VOICE_STOP")
 	self:UnregisterMessage("Grid_UnitLeft")
+	self:UnregisterMessage("Grid_UnitUpdated")
 	while true do
 		local k = next(cache)
 		if not k then break end
