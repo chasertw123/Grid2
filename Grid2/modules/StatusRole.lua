@@ -437,13 +437,13 @@ DungeonRole.SetHideInCombat = SetHideInCombat
 function DungeonRole:OnEnable()
 	self:SetHideInCombat(self.dbx.hideInCombat)
 	self:UpdateDB()
-	self:RegisterEvent("PLAYER_ROLES_ASSIGNED", "UpdateAllUnits")
+	pcall(self.RegisterEvent, self, "PLAYER_ROLES_ASSIGNED", "UpdateAllUnits") -- event absent on some 3.3.5 clients
 	self:RegisterEvent("PARTY_MEMBERS_CHANGED", "UpdateAllUnits")
 end
 
 function DungeonRole:OnDisable()
 	self:SetHideInCombat()
-	self:UnregisterEvent("PLAYER_ROLES_ASSIGNED")
+	pcall(self.UnregisterEvent, self, "PLAYER_ROLES_ASSIGNED")
 	self:UnregisterEvent("PARTY_MEMBERS_CHANGED")
 end
 

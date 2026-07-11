@@ -25,7 +25,7 @@ end
 
 function Offline:UpdateAllUnits(event)
 	if timer then return end
-	Grid2:ScheduleTimer(Scan, frequency)
+	timer = Grid2:ScheduleTimer(Scan, frequency) -- capture handle so the debounce guard above coalesces churn
 end
 
 function Offline:Grid_UnitUpdated(_, unit)

@@ -155,6 +155,11 @@ do
 	local units_updated = {}
 
 	function Grid2:UNIT_NAME_UPDATE(_, unit)
+		-- UNIT_NAME_UPDATE has no per-unit filtering on 3.3.5 and fires for target/focus/mouseover too; without
+		-- this guard those pollute roster_names and GetUnitByFullName can return e.g. "mouseover" over "raid5".
+		if not (self:UnitIsParty(unit) or self:UnitIsRaid(unit)) then
+			return
+		end
 		local name, realm = UnitName(unit)
 		local guid = UnitGUID(unit)
 

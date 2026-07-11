@@ -159,7 +159,17 @@ do
 		end
 	end
 	e.SPELL_MISSED = e.SPELL_CAST_INTERRUPTED
-	e.UNIT_DIED = e.SPELL_CAST_INTERRUPTED
+	-- For UNIT_DIED the dead unit is the DEST (sourceGUID is the null GUID), so clear the pending banzai
+	-- keyed by the enemy's own GUID = destGUID, not sourceGUID.
+	e.UNIT_DIED = function(_, destGUID)
+		if destGUID then
+			bsrc[destGUID] = nil
+			local unit = bgid[destGUID]
+			if unit then
+				bexp[unit] = 0
+			end
+		end
+	end
 	function Banzai.CombatLogEvent(_, event, sourceGUID, _, _, destGUID, _, _, spellId)
 		local action = e[event]
 		if action then

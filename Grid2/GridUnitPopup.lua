@@ -217,8 +217,9 @@ function Grid2:UnitPopup_ShowMenu(dropdownMenu, which, unit, name, userData)
 	end
 	-- Disable dungeon and raid difficulty in instances except for for leaders in dynamic instances
 	local _, instanceType, _, _, _, _, isDynamicInstance = GetInstanceInfo()
-	if (isDynamicInstance and CanChangePlayerDifficulty()) then
-		selectedRaidDifficulty, allowedRaidDifficultyChange = _GetPlayerDifficultyMenuOptions()
+	local selectedRaidDifficulty, allowedRaidDifficultyChange -- were leaking to globals
+	if (isDynamicInstance and CanChangePlayerDifficulty() and GetPlayerDifficultyMenuOptions) then
+		selectedRaidDifficulty, allowedRaidDifficultyChange = GetPlayerDifficultyMenuOptions() -- was undefined _GetPlayer...
 	end
 	if (instanceType == "none") then
 		Grid2PopupButtons["DUNGEON_DIFFICULTY"].nested = 1
@@ -976,8 +977,8 @@ function Grid2:UnitPopup_OnUpdate(elapsed, frame)
 	-- dynamic difficulty
 	local allowedRaidDifficultyChange
 	local _, instanceType, _, _, _, _, isDynamicInstance = GetInstanceInfo()
-	if (isDynamicInstance and CanChangePlayerDifficulty()) then
-		_, allowedRaidDifficultyChange = _GetPlayerDifficultyMenuOptions()
+	if (isDynamicInstance and CanChangePlayerDifficulty() and GetPlayerDifficultyMenuOptions) then
+		_, allowedRaidDifficultyChange = GetPlayerDifficultyMenuOptions() -- was undefined _GetPlayer...
 	end
 
 	-- Loop through all menus and enable/disable their buttons appropriately
@@ -1191,7 +1192,9 @@ function Grid2:UnitPopup_OnClick(btn)
 		PromoteToLeader(unit, 1)
 	elseif (button == "GUILD_PROMOTE") then
 		local dialog = StaticPopup_Show("CONFIRM_GUILD_PROMOTE", name)
-		dialog.data = name
+		if (dialog) then -- StaticPopup_Show returns nil when no popup slot is free
+			dialog.data = name
+		end
 	elseif (button == "GUILD_LEAVE") then
 		StaticPopup_Show("CONFIRM_GUILD_LEAVE", GetGuildInfo("player"))
 	elseif (button == "TEAM_PROMOTE") then

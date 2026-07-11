@@ -164,6 +164,7 @@ do
 			Grid2:DbSetValue("statuses", "buff-HandOfProtection-mine", {type = "buff", spellName = 1022, mine = true, color1 = {r = 1, g = 1, b = 1, a = 1}})
 			Grid2:DbSetValue("statuses", "buff-HandOfSalvation", {type = "buff", spellName = 1038, color1 = {r = 1, g = 1, b = 1, a = 1}})
 			Grid2:DbSetValue("statuses", "buff-HandOfSalvation-mine", {type = "buff", spellName = 1038, mine = true, color1 = {r = .8, g = .8, b = .7, a = 1}})
+			Grid2:DbSetValue("statuses", "buff-FlashOfLight-mine", {type = "buff", spellName = 19750, mine = true, color1 = {r = 1, g = 1, b = 1, a = 1}}) -- was mapped by side-top but never defined
 			Grid2:DbSetValue("statuses", "debuff-Forbearance", {type = "debuff", spellName = 25771, color1 = {r = 1, g = 0, b = 0, a = 1}})
 			Grid2:DbSetValue("indicators", "corner-top-left", {type = "text", level = 9, location = Location("TOPLEFT"), textlength = 12, fontSize = 8, font = defaultFont, duration = true})
 			Grid2:DbSetMap("corner-top-left", "buff-BeaconOfLight", 99)
@@ -286,12 +287,14 @@ function Grid2:UpdateDefaults()
 				heals.parentBar = "health"
 			end
 		elseif version < 4 then
-			if heals and heals.parentBar then
-				heals.anchorTo = heals.parentBar
-				heals.parentBar = nil
+			-- keep the heals bar nested in the health bar: current code reads parentBar/childBar; the old
+			-- conversion moved the link into heals.anchorTo, which nothing reads (heals rendered detached).
+			if health and heals then
+				health.childBar = "heals"
+				heals.parentBar = "health"
 			end
-			if health and health.childBar then
-				health.childBar = nil
+			if heals then
+				heals.anchorTo = nil
 			end
 		end
 		if version < 5 then
