@@ -66,7 +66,9 @@ do
 	local min = math.min
 	local max = math.max
 	local strlen = strlen
+	local UnitGUID = UnitGUID
 	local health_cache = {}
+	local health_guid = {}   -- unit token -> GUID the cached health belongs to (invalidates on roster reindex)
 	local HealthEvents = {
 		SPELL_DAMAGE = -15,
 		RANGE_DAMAGE = -15,
@@ -79,34 +81,45 @@ do
 		SPELL_HEAL = 15
 	}
 	function UnitQuickHealth(unit)
-		return health_cache[unit] or UnitHealthOriginal(unit)
+		-- Only trust the cache if it still belongs to the unit currently occupying this token. When a group
+		-- member leaves and survivors shift up (e.g. party3 -> party2), the token's occupant changes; without
+		-- this GUID guard a frame could render the departed unit's stale health (0 if they were dead), because
+		-- the cache wipe below runs on a separate event frame and can fire after the frames have refreshed.
+		local h = health_cache[unit]
+		if h ~= nil and health_guid[unit] == UnitGUID(unit) then
+			return h
+		end
+		return UnitHealthOriginal(unit)
 	end
 	local function RosterUpdateEvent()
 		wipe(health_cache)
+		wipe(health_guid)
 	end
 	local function HealthChangedEvent(unit)
-		--	if strlen(unit)<8 then  -- Ignore Pets
 		local h = UnitHealthOriginal(unit)
-		if h == health_cache[unit] then
+		local guid = UnitGUID(unit)
+		if h == health_cache[unit] and guid == health_guid[unit] then
 			return
 		end
 		health_cache[unit] = h
-		--	end
+		health_guid[unit] = guid
 		UpdateIndicators(unit)
 	end
 	local function CombatLogEvent(...)
 		local sign = HealthEvents[select(2, ...)]
 		if sign then
-			local unit = roster_units[select(8, ...)]
+			local guid = select(8, ...)
+			local unit = roster_units[guid]
 			if unit and strlen(unit) < 8 then
 				local health
 				if sign > 0 then
-					health = min((health_cache[unit] or UnitHealthOriginal(unit)) + select(sign, ...), UnitHealthMax(unit))
+					health = min(UnitQuickHealth(unit) + select(sign, ...), UnitHealthMax(unit))
 				elseif sign < 0 then
-					health = max((health_cache[unit] or UnitHealthOriginal(unit)) - select(-sign, ...), 0)
+					health = max(UnitQuickHealth(unit) - select(-sign, ...), 0)
 				end
-				if health ~= health_cache[unit] then
+				if health ~= health_cache[unit] or guid ~= health_guid[unit] then
 					health_cache[unit] = health
+					health_guid[unit] = guid
 					UpdateIndicators(unit)
 				end
 			end
