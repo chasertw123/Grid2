@@ -277,8 +277,8 @@ do
 						index = index + 1
 					end
 				end
-				while index <= #menuTable do
-					wipe(menuTable[index])
+				for i = #menuTable, index, -1 do -- drop stale trailing entries (wipe() left non-nil slots -> infinite loop)
+					tremove(menuTable, i)
 				end
 				sort(menuTable, function(a, b)
 					if a.isTitle then
