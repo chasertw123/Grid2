@@ -154,6 +154,9 @@ function Grid2:UnregisterIndicator(indicator)
 	if indicator.Disable then
 		Grid2Frame:WithAllFrames(indicator, "Disable")
 	end
+	if indicator.OnDelete then -- let the indicator drop module-level registrations (e.g. Portrait's Portraits set)
+		indicator:OnDelete()
+	end
 	local name = indicator.name
 	self.indicators[name] = nil
 	for _, t in pairs(self.indicatorTypes) do

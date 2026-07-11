@@ -93,6 +93,11 @@ function GridFrameEvents:OnAttributeChanged(name, value)
 			Grid2Frame:Debug("removed", self:GetName(), name, self.unit)
 			self.unit = nil
 			Grid2:SetFrameUnit(self, nil)
+			for _, indicator in Grid2:IterateIndicators() do
+				if indicator.OnUnitLost then -- let indicators tear down per-frame timers when a frame is de-occupied
+					indicator:OnUnitLost(self)
+				end
+			end
 		end
 	end
 end

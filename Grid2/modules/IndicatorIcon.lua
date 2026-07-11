@@ -185,6 +185,8 @@ local function Icon_Disable(self, parent)
 	if f.CooldownText then
 		f.CooldownText:Hide()
 	end
+	f.animElapsed = nil -- clear stale scale-pop state + ticker so a later re-enable animates from scratch
+	f:SetScript("OnUpdate", nil)
 	self.GetBlinkFrame = nil
 	self.Layout = nil
 	self.OnUpdate = nil

@@ -163,11 +163,14 @@ local function Bar_Layout(self, parent)
 	local ctextures
 	local barCount = #self.bars
 	local textures = bar.myTextures or {barTexture}
+	local frames = bar.myFrames or {}
 	for i = 1, barCount do
 		local setup = self.bars[i]
-		local f = CreateFrame("Frame", nil, bar)
+		local f = frames[i] or CreateFrame("Frame", nil, bar) -- pool the intermediate frames (were leaked every pass)
+		frames[i] = f
 		f:SetFrameLevel(bar:GetFrameLevel() + i)
 		f:SetAllPoints()
+		f:Show()
 		local texture = textures[i + 1] or f:CreateTexture()
 		texture:Hide()
 		texture:ClearAllPoints()
@@ -195,7 +198,11 @@ local function Bar_Layout(self, parent)
 	for i = barCount + 2, #textures do
 		textures[i]:Hide()
 	end
+	for i = barCount + 1, #frames do -- hide pooled frames the current config no longer uses
+		frames[i]:Hide()
+	end
 	bar.myTextures = textures
+	bar.myFrames = frames
 	bar.myCTextures = ctextures
 	bar.myMaxIndex = #self.statuses
 	bar:Show()

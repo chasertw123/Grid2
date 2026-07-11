@@ -238,11 +238,23 @@ end
 
 local function Text_Disable(self, parent)
 	local f = parent[self.name]
+	if f.Text and timers[f.Text] then
+		TimerStop(f.Text)
+	end
 	f:Hide()
 	f.Text:Hide()
 	self.GetBlinkFrame = nil
 	self.Layout = nil
 	self.OnUpdate = Grid2.Dummy
+end
+
+-- Called when a frame loses its unit (roster shrink): stop the duration ticker so it does not keep running on
+-- a hidden fontstring that will never get a clearing Update.
+local function Text_OnUnitLost(self, parent)
+	local f = parent[self.name]
+	if f and f.Text and timers[f.Text] then
+		TimerStop(f.Text)
+	end
 end
 
 local function Text_UpdateDB(self, dbx)
@@ -268,6 +280,7 @@ local function Text_UpdateDB(self, dbx)
 	self.GetBlinkFrame = Text_GetBlinkFrame
 	self.Layout = Text_Layout
 	self.Disable = Text_Disable
+	self.OnUnitLost = Text_OnUnitLost
 	self.UpdateDB = Text_UpdateDB
 	if dbx.duration or dbx.elapsed then
 		self.stack = dbx.stack

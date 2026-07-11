@@ -67,14 +67,19 @@ end
 local durationTimers = {}
 local expirations = {}
 local durations = {}
-local function tevent(bar)
-	local timeLeft = expirations[bar] - GetTime()
-	bar:SetValue(timeLeft > 0 and timeLeft / durations[bar] or 0)
-end
 local function tcancel(bar)
 	if durationTimers[bar] then
 		Grid2:CancelTimer(durationTimers[bar], true)
 		durationTimers[bar], expirations[bar], durations[bar] = nil, nil, nil
+	end
+end
+local function tevent(bar)
+	local timeLeft = expirations[bar] - GetTime()
+	if timeLeft > 0 then
+		bar:SetValue(timeLeft / durations[bar])
+	else
+		bar:SetValue(0)
+		tcancel(bar) -- stop the repeating ticker once the bar has drained
 	end
 end
 
@@ -90,7 +95,7 @@ local function Bar_OnUpdateD(self, parent, unit, status)
 				expirations[bar] = expiration
 				durations[bar] = duration
 				if not durationTimers[bar] then
-					durationTimers[bar] = Grid2:ScheduleTimer(tevent, duration > 3 and 0.2 or 0.1, bar)
+					durationTimers[bar] = Grid2:ScheduleRepeatingTimer(tevent, duration > 3 and 0.2 or 0.1, bar)
 				end
 				value = timeLeft / duration
 			else

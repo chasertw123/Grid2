@@ -3,14 +3,13 @@ if not SLG then return end
 
 local Grid2 = Grid2
 
-local colorTable = {}
-
 local function BorderGlow_OnUpdate(self, parent, unit, status)
 	if status then
 		local color = self.color
 		if not color then
-			color = colorTable
-			colorTable[1], colorTable[2], colorTable[3], colorTable[4] = status:GetColor(unit)
+			-- Fresh table per update: the glow libs retain the color table by reference for the whole
+			-- animation, so a shared upvalue would let a concurrent frame's update corrupt this frame's glow.
+			color = {status:GetColor(unit)}
 		end
 		if self.effect == 1 then
 			SLG.PixelGlow_Start(parent, color, self.linesCount, self.frequency, nil, self.thickness, self.offsetX, self.offsetY, false, self.name)
