@@ -684,10 +684,10 @@ do
 		end
 		local function GetNumGroupAndRoster()
 			local count = GetNumRaidMembers()
-			if count == 0 then
-				count = GetNumPartyMembers() + 1
+			if count > 0 then
+				return count, GetRaidRosterInfo -- raids: party* tokens are invalid, read the raid roster
 			end
-			return count, GetPartyRosterInfo
+			return GetNumPartyMembers() + 1, GetPartyRosterInfo
 		end
 		UpdateRoster = function(updateLayout)
 			local SortKey = SortKeyGen[SettingSortTanks and SettingSortType .. "tank" or SettingSortType]
@@ -935,7 +935,7 @@ do
 
 	function Events:PLAYER_REGEN_ENABLED()
 		if queueUpdateRoster then
-			UpdateRoster()
+			UpdateRoster(true) -- push the layout update too, or the header nameList stays stale after combat
 		end
 		if queueUpdateLayout then
 			LayoutUpdate()

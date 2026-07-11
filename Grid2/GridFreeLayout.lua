@@ -356,7 +356,7 @@ end
 
 function Events:PLAYER_REGEN_ENABLED()
 	if queueUpdateRoster then
-		UpdateRoster()
+		UpdateRoster(true) -- push the layout update too, or the header nameList stays stale after combat
 	end
 	if queueUpdateLayout then
 		LayoutUpdate()
