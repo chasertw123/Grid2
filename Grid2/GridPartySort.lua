@@ -5,6 +5,10 @@
 --   ROLE -> build a role-ordered comma name list and push it as nameList/sortMethod="NAMELIST" per header,
 --           since the secure groupBy cannot express tank/healer/dps. Role comes from Grid2.GetUnitRole (LFG
 --           role, else class shortcut, else LibGroupTalents talent inspection -> async, trickles in).
+--           When the current roster has NO role distinction at all (every unit falls in one bucket -- e.g. nobody
+--           assigned/detected as tank or healer), NAMELIST would only reproduce name order while still paying the
+--           combat-lock cost, so ROLE quietly drops to native NAME for the numeric headers (self-maintaining, no
+--           queued re-push); it flips back to NAMELIST the moment a real tank/healer role appears.
 -- Re-applied after every LoadLayout so it survives reloads; secure SetAttribute is combat-protected, so work
 -- is queued to PLAYER_REGEN_ENABLED. The drag-ordered "Free Layout" owns its own nameList and is skipped.
 -- MUST load AFTER GridFreeLayout.lua so THIS LoadLayout wrapper is the outermost one.
@@ -20,12 +24,14 @@ local LGT = LibStub("LibGroupTalents-1.0", true)
 local UNIT_TYPES = {"raid", "party"}
 local PET_TYPES  = {"raidpet", "partypet"}
 
-local db, activeLayout, sortQueued
+local db, activeLayout, sortQueued, rolesDiffer, firstBucket
 local roleRank    = {}   -- role token -> rank 1..K (from the configured order)
 local sortedNames = {}   -- reused: global role-ordered unit names
 local nameKey     = {}   -- reused: name -> "<rank><name>" sort key
 local nameGroup   = {}   -- reused: name -> subgroup (for per-group header filtering)
 local origFilter  = {}   -- header -> its pristine groupFilter, snapshotted at load (before we clear it)
+local origBy      = {}   -- header -> pristine groupBy       (snapshotted with origFilter; for restoring native grouping)
+local origOrder   = {}   -- header -> pristine groupingOrder (snapshotted with origFilter; for restoring native grouping)
 local lastList    = {}   -- header -> last pushed nameList (dirty-check to skip redundant secure writes)
 local scratch     = {}   -- reused: per-header list builder
 local groupSet    = {}   -- reused: parsed groupFilter set
@@ -53,6 +59,10 @@ local function AddUnit(unit, class, subgroup, reverse, K)
 	if not name or name == "" then return end
 	local r = roleRank[GetUnitRole(unit, class)]           -- nil for NONE / unknown / not-yet-inspected
 	local keyNum = (not r and K + 1) or (reverse and (K + 1 - r)) or r
+	-- Track whether the roster splits into >1 role bucket. If everyone lands in the same bucket (all NONE, or
+	-- all the same role), role-sort == name-sort, so we can skip the combat-locked NAMELIST and use native NAME.
+	local bucket = r or 0
+	if firstBucket == nil then firstBucket = bucket elseif bucket ~= firstBucket then rolesDiffer = true end
 	sortedNames[#sortedNames + 1] = name
 	nameKey[name]   = fmt("%02d%s", keyNum, name)          -- role rank, then name as a stable tiebreak
 	nameGroup[name] = subgroup
@@ -60,6 +70,7 @@ end
 
 local function ScanRoster()
 	wipe(sortedNames); wipe(nameKey); wipe(nameGroup)
+	rolesDiffer, firstBucket = false, nil
 	local reverse, K = db.sortReverse, #GetRoleOrder()
 	local nRaid = GetNumRaidMembers()
 	if nRaid > 0 then
@@ -92,13 +103,26 @@ local function BuildHeaderList(h)
 end
 
 -- Hide -> ClearChildrenPoints -> SetAttribute -> Show so the secure header re-runs its arrange cleanly (same
--- bracket the Free Layout engine uses). clearGrouping nils groupFilter/groupBy so nameList drives membership.
-local function ApplyToHeader(h, method, dir, list, clearGrouping)
+-- bracket the Free Layout engine uses). `grouping` controls the header's native grouping attributes:
+--   "clear"       -> nil out groupFilter/groupBy/groupingOrder so the pushed nameList alone drives membership.
+--   "restore"     -> put back the pristine groupFilter+groupBy+groupingOrder (per-group native look, NAME mode).
+--   "restoreflat" -> keep the pristine groupFilter (subgroup membership) but drop groupBy/groupingOrder, so a
+--                    native NAME sort yields ROLE mode's single flat list instead of re-splitting into groups.
+--   nil/false     -> leave grouping as-is (headers that already carry the filter we want, e.g. role-token ones).
+local function ApplyToHeader(h, method, dir, list, grouping)
 	local vis = h:IsVisible()
 	if vis then h:Hide() end
 	h:ClearChildrenPoints()
-	if clearGrouping then
+	if grouping == "clear" then
 		h:SetAttribute("groupFilter", nil)
+		h:SetAttribute("groupBy", nil)
+		h:SetAttribute("groupingOrder", nil)
+	elseif grouping == "restore" then
+		h:SetAttribute("groupFilter", origFilter[h])
+		h:SetAttribute("groupBy", origBy[h])
+		h:SetAttribute("groupingOrder", origOrder[h])
+	elseif grouping == "restoreflat" then
+		h:SetAttribute("groupFilter", origFilter[h])
 		h:SetAttribute("groupBy", nil)
 		h:SetAttribute("groupingOrder", nil)
 	end
@@ -124,35 +148,41 @@ local function ApplySort(fromReload)
 
 	if mode == "NAME" then
 		local dir = db.sortReverse and "DESC" or nil
-		eachHeader(UNIT_TYPES, function(h) ApplyToHeader(h, "NAME", dir, nil, false) end)
-		eachHeader(PET_TYPES,  function(h) ApplyToHeader(h, "NAME", dir, nil, false) end)
+		eachHeader(UNIT_TYPES, function(h) ApplyToHeader(h, "NAME", dir, nil, "restore") end)  -- per-group native, groupBy intact
+		eachHeader(PET_TYPES,  function(h) ApplyToHeader(h, "NAME", dir, nil, nil) end)          -- pet grouping is never cleared
 		Grid2Layout:UpdateSize()
 	else -- ROLE
 		ScanRoster()
+		-- If no role actually splits this roster, a NAMELIST would only reproduce name order while still paying
+		-- the combat-lock cost (every roster/role change is a blocked SetAttribute, deferred to end of combat).
+		-- Drop the numeric headers to native NAME instead: self-maintaining, no queued re-push. Reverse honors
+		-- the request to use native NAME DESC. (Membership add/remove is still combat-frozen with either method.)
+		local useNative = not rolesDiffer
+		local dir = db.sortReverse and "DESC" or nil
 		local changed = fromReload
 		eachHeader(UNIT_TYPES, function(h)
 			local of = origFilter[h]
-			if of and of:find("%a") then
-				-- Non-numeric role-token groupFilter (e.g. "MAINTANK,MAINASSIST" on By-Role/w-tanks layouts)
-				-- that the numeric nameList filter can't express: keep the native secure filtering and just
-				-- name-sort within it, so that dedicated column stays populated instead of blanking to empty.
+			local roleTokenFilter = of and of:find("%a")   -- e.g. "MAINTANK,MAINASSIST": a secure filter we keep natively
+			if roleTokenFilter or useNative then
+				-- Native NAME for this header. Role-token headers keep their own filter untouched; a numeric header
+				-- dropping out of NAMELIST must restore its subgroup filter (flattened) or it would show EVERYONE.
 				if lastList[h] ~= false then       -- `false` sentinel: native NAME applied (distinct from any list string)
 					lastList[h] = false
-					ApplyToHeader(h, "NAME", db.sortReverse and "DESC" or nil, nil, false)
+					local grp; if roleTokenFilter then grp = nil else grp = "restoreflat" end
+					ApplyToHeader(h, "NAME", dir, nil, grp)
 					changed = true
 				end
 			else
 				local list = BuildHeaderList(h)
 				if list ~= lastList[h] then
 					lastList[h] = list
-					ApplyToHeader(h, "NAMELIST", nil, list, true)
+					ApplyToHeader(h, "NAMELIST", nil, list, "clear")
 					changed = true
 				end
 			end
 		end)
 		if fromReload then   -- pets can't be role-sorted; set once per load, still honor reverse via sortDir
-			local pdir = db.sortReverse and "DESC" or nil
-			eachHeader(PET_TYPES, function(h) ApplyToHeader(h, "NAME", pdir, nil, false) end)
+			eachHeader(PET_TYPES, function(h) ApplyToHeader(h, "NAME", dir, nil, nil) end)
 		end
 		if changed then Grid2Layout:UpdateSize() end
 	end
@@ -167,10 +197,15 @@ function Grid2Layout:LoadLayout(name)
 	activeLayout = name
 	LoadConfig()
 	if name == "Free Layout" then return end   -- Free Layout owns its own nameList; never clobber it
-	wipe(origFilter); wipe(lastList)
+	wipe(origFilter); wipe(origBy); wipe(origOrder); wipe(lastList)
 	for _, t in ipairs(UNIT_TYPES) do
 		local hs, n = Grid2Layout.groups[t], Grid2Layout.indexes[t]
-		for i = 1, n do origFilter[hs[i]] = hs[i]:GetAttribute("groupFilter") end
+		for i = 1, n do
+			local h = hs[i]
+			origFilter[h] = h:GetAttribute("groupFilter")
+			origBy[h]     = h:GetAttribute("groupBy")
+			origOrder[h]  = h:GetAttribute("groupingOrder")
+		end
 	end
 	ApplySort(true)
 end
