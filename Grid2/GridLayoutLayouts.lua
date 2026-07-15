@@ -1131,11 +1131,9 @@ do
 
 	local prev_MouseUpHandler
 	local function LayoutManagerOpenMenuEvent(self, button, ...)
+		-- Right-clicking empty container space no longer opens the layout-select menu (change layouts via the
+		-- minimap/LDB button or /grid2). Unit frames keep their own right-click menu.
 		prev_MouseUpHandler(self, button, ...)
-		if button == "RightButton" and (not InCombatLockdown()) then
-			LayoutDragManagerHide()
-			LayoutMenuShow()
-		end
 	end
 
 	function LayoutInit()

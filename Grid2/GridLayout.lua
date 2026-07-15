@@ -95,21 +95,32 @@ local anchorPoints = {
 -- resolve a key against the named layout's override -- only when that override is enabled AND actually holds the
 -- key -- else the global profile. LGet/LSet are the active-layout shortcuts the engine's own read/write sites
 -- use. With no overrides everything falls through to the global key byte-for-byte. Overridable = the position,
--- scale and geometry VALUES (main + pet); pet MODE toggles (petEnabled/petOwnScale/petOwnGrowth/...) stay global.
+-- scale and geometry VALUES (main + pet). The pet MODE toggles (petEnabled/petOwnScale/petOwnGrowth) are resolved
+-- per-layout by PetMode below: a layout's ov.petOverride turns them on for that layout without the global flag.
 local OVERRIDABLE = {
 	PosX = true, PosY = true, anchor = true, ScaleSize = true, Padding = true, Spacing = true, horizontal = true, groupAnchor = true,
 	PetPosX = true, PetPosY = true, petAnchor = true, PetScaleSize = true, petPadding = true, petSpacing = true, petHorizontal = true, petGroupAnchor = true,
 }
+-- Pet override keys are governed by a SEPARATE per-layout enable (ov.petOverride) so the main-grid and pet
+-- overrides toggle independently; every other key is governed by the main ov.enabled.
+local PET_OV_KEY = {
+	PetPosX = true, PetPosY = true, petAnchor = true, PetScaleSize = true, petPadding = true, petSpacing = true, petHorizontal = true, petGroupAnchor = true,
+}
+local function OverrideOn(ov, key)
+	if not ov then return false end
+	if PET_OV_KEY[key] then return ov.petOverride end
+	return ov.enabled
+end
 function Grid2Layout:LayoutValue(name, key)
 	local p = self.db.profile
 	local ov = p.layoutOverrides and p.layoutOverrides[name or "solo"]
-	if ov and ov.enabled and ov[key] ~= nil then return ov[key] end   -- presence test: untouched keys use the global
+	if OverrideOn(ov, key) and ov[key] ~= nil then return ov[key] end   -- presence test: untouched keys use the global
 	return p[key]
 end
 function Grid2Layout:SetLayoutValue(name, key, value)
 	local p = self.db.profile
 	local ov = p.layoutOverrides and p.layoutOverrides[name or "solo"]
-	if ov and ov.enabled and OVERRIDABLE[key] then
+	if OverrideOn(ov, key) and OVERRIDABLE[key] then
 		ov[key] = value
 		-- Pin the anchor on the first coordinate write so a later change to the GLOBAL anchor can't reinterpret
 		-- this layout's saved offset.
@@ -125,12 +136,25 @@ end
 local function LGet(key) return Grid2Layout:LayoutValue(Grid2Layout.layoutName, key) end
 local function LSet(key, v) Grid2Layout:SetLayoutValue(Grid2Layout.layoutName, key, v) end
 
+-- A pet MODE is active for the ACTIVE layout when its GLOBAL toggle is on OR that layout's own pet override is
+-- enabled -- making a per-layout pet override fully self-contained (pets go to their own container, at their own
+-- scale/growth, for just that layout, without needing the global "Position pet frames separately"). With no
+-- overrides these all reduce to the plain global toggle, so default behavior is byte-for-byte unchanged.
+local function PetMode(p, globalKey)
+	if p[globalKey] then return true end
+	local ov = p.layoutOverrides and p.layoutOverrides[Grid2Layout.layoutName or "solo"]
+	return (ov and ov.petOverride) or false
+end
+local function PetSeparate(p) return PetMode(p, "petEnabled") end
+local function PetOwnScale(p) return PetMode(p, "petOwnScale") end
+local function PetOwnGrowth(p) return PetMode(p, "petOwnGrowth") end
+
 -- Resolve growth (horizontal, groupAnchor, Padding, Spacing) for a header. Pet headers use their own
--- values only when petEnabled + petOwnGrowth (each inheriting the main value when unset); everything else
+-- values only when pets are separate + own-growth (each inheriting the main value when unset); everything else
 -- returns the main values, so with the feature off this is byte-for-byte the old behavior. Declared BEFORE
 -- SetOrientation on purpose: it is a file-local upvalue bound at function-definition time.
 local function GetGrowth(p, isPet)
-	if isPet and p.petEnabled and p.petOwnGrowth then
+	if isPet and PetSeparate(p) and PetOwnGrowth(p) then
 		local h = LGet("petHorizontal")
 		if h == nil then h = LGet("horizontal") end
 		return h, LGet("petGroupAnchor") or LGet("groupAnchor"), LGet("petPadding") or LGet("Padding"), LGet("petSpacing") or LGet("Spacing")
@@ -455,7 +479,7 @@ end
 
 -- Show/hide feedback for the options master toggle (real creation is guaranteed by LoadLayout, out of combat).
 function Grid2Layout:SetupPetFrame()
-	if self.db.profile.petEnabled then
+	if PetSeparate(self.db.profile) then
 		if not self.petFrame and not InCombatLockdown() then
 			self:CreatePetFrame()
 		end
@@ -477,7 +501,7 @@ function Grid2Layout:PlaceGroup(frame, groupNumber)
 	-- Route pet headers (already stamped isPetHeader at creation) to the pet container when enabled;
 	-- everything else stays on the main frame. Each container keeps its own placement chain so the first
 	-- group of each is corner-anchored and the rest chain off the previous one. prev==nil detects "first".
-	local usePet = settings.petEnabled and self.petFrame and frame.isPetHeader
+	local usePet = PetSeparate(settings) and self.petFrame and frame.isPetHeader
 	-- Explicit if/else, NOT `usePet and X or Y`: for the first pet header previousPetFrame is nil, and
 	-- `(usePet and nil) or previousFrame` would wrongly fall through to the main grid's last header,
 	-- anchoring the pet group to the main grid instead of the pet container.
@@ -576,7 +600,7 @@ function Grid2Layout:LoadLayout(layoutName)
 	self.layoutName = layoutName
 	-- LoadLayout only runs out of combat (ReloadLayout is combat-guarded), so lazily creating the pet
 	-- container here is safe and guarantees it exists before Scale and before pet headers are parented to it.
-	if self.db.profile.petEnabled and not self.petFrame then
+	if PetSeparate(self.db.profile) and not self.petFrame then
 		self:CreatePetFrame()
 	end
 	-- Apply THIS layout's stored position BEFORE Scale(): Scale()'s internal SavePosition re-captures the
@@ -646,7 +670,7 @@ function Grid2Layout:UpdateSize()
 	self.updateSizeQueued = nil
 
 	local p = self.db.profile
-	local usePet = p.petEnabled and self.petFrame
+	local usePet = PetSeparate(p) and self.petFrame
 	-- Resolve growth per container so a pet group on its own axis is accumulated and sized correctly.
 	-- With petOwnGrowth off these all equal the main values, so the math is byte-for-byte the old behavior.
 	local mh, _, mPad, mSpc = GetGrowth(p, false)
@@ -747,7 +771,7 @@ function Grid2Layout:CheckVisibility()
 	if self.petFrame then
 		-- hide the pet container when there are no pet groups so an empty box doesn't linger
 		local hasPets = (self.indexes.raidpet + self.indexes.partypet) > 0
-		if show and p.petEnabled and hasPets then
+		if show and PetSeparate(p) and hasPets then
 			self.petFrame:Show()
 		else
 			self.petFrame:Hide()
@@ -877,7 +901,7 @@ function Grid2Layout:Scale()
 	self.frame:SetScale(SnapScale(base))
 	if self.petFrame then
 		-- pet container follows the main scale unless given its own; snapped the same way
-		local pbase = p.petOwnScale and (LGet("PetScaleSize") * ls) or base
+		local pbase = PetOwnScale(p) and (LGet("PetScaleSize") * ls) or base
 		self.petFrame:SetScale(SnapScale(pbase))
 	end
 	self:RestorePosition()

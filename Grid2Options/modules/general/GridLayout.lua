@@ -894,11 +894,13 @@ local selName  -- module-local: which layout the UI is currently configuring
 local function Sel() return selName or Grid2Layout.layoutName or "solo" end
 local function Ov() local lo = Grid2Layout.db.profile.layoutOverrides; return lo and lo[Sel()] end
 local function OvOff() local o = Ov(); return not (o and o.enabled) end
+local function OvPetOff() local o = Ov(); return not (o and o.petOverride) end
 local function IsActive(n) return n == (Grid2Layout.layoutName or "solo") end
--- pet override controls only do anything when the matching GLOBAL pet toggle is on, so gate them on both.
-local function petPosGate() return OvOff() or not Grid2Layout.db.profile.petEnabled end
-local function petScaleGate() local p = Grid2Layout.db.profile; return OvOff() or not (p.petEnabled and p.petOwnScale) end
-local function petGeoGate() local p = Grid2Layout.db.profile; return OvOff() or not (p.petEnabled and p.petOwnGrowth) end
+-- Pet override controls gate on the pet override's OWN enable (independent of the main override and of the
+-- global "Position pet frames separately").
+local function petPosGate() return OvPetOff() end
+local function petScaleGate() return OvPetOff() end
+local function petGeoGate() return OvPetOff() end
 
 local function EnableOverride(n, on)
 	local p = Grid2Layout.db.profile
@@ -909,6 +911,21 @@ local function EnableOverride(n, on)
 		o.enabled = true
 	elseif o then
 		o.enabled = false   -- keep stored values so re-enabling restores the user's tuning
+	end
+	if IsActive(n) then Grid2Layout:Scale(); Grid2Layout:ReloadLayout() end
+	if Grid2Options.LayoutTestRefresh then Grid2Options:LayoutTestRefresh() end
+end
+
+-- Independent enable for the PET override (separate flag from the main override so the two toggle apart).
+local function EnablePetOverride(n, on)
+	local p = Grid2Layout.db.profile
+	p.layoutOverrides = p.layoutOverrides or {}
+	local o = p.layoutOverrides[n]
+	if on then
+		if not o then o = {}; p.layoutOverrides[n] = o end
+		o.petOverride = true
+	elseif o then
+		o.petOverride = false   -- keep stored values so re-enabling restores the user's tuning
 	end
 	if IsActive(n) then Grid2Layout:Scale(); Grid2Layout:ReloadLayout() end
 	if Grid2Options.LayoutTestRefresh then Grid2Options:LayoutTestRefresh() end
@@ -987,9 +1004,10 @@ Grid2Options:AddGeneralOptions("General", "Per-Layout Overrides", {
 })
 
 -- Pet per-layout overrides live under the Pets tab, next to the other pet settings. They share the selected
--- layout (selName) and the SAME enable toggle (override.enabled) as the main overrides above; the pet value
--- controls are additionally gated on the global pet-container toggles (petEnabled / petOwnScale / petOwnGrowth).
-Grid2Options:AddGeneralOptions("Pets", "Per-Layout Overrides", {
+-- layout (selName) with the main overrides but have their OWN enable flag (override.petOverride), so the pet
+-- override toggles independently of the main grid override AND of the global "Position pet frames separately":
+-- turning it on gives pets their own container/scale/growth for that layout alone (see PetMode in GridLayout.lua).
+Grid2Options:AddGeneralOptions("Pets", "Per-Layout Pet Overrides", {
 	configureLayout = {
 		type = "select", order = 1, name = L["Configure layout"],
 		desc = L["Pick which layout's settings to view and edit below."],
@@ -999,9 +1017,9 @@ Grid2Options:AddGeneralOptions("Pets", "Per-Layout Overrides", {
 	},
 	useOverride = {
 		type = "toggle", order = 2, width = "full", name = L["Use separate settings for this layout"],
-		desc = L["When on, this layout uses its own position/scale/geometry below instead of the global settings."],
-		get = function() local o = Ov() return o and o.enabled end,
-		set = function(_, v) EnableOverride(Sel(), v) end
+		desc = L["When on, this layout gives pet frames their own container with the position/scale/geometry below -- for this layout only. Works on its own: it does NOT need the main Per-Layout Overrides (General tab) or the global 'Position pet frames separately'."],
+		get = function() local o = Ov() return o and o.petOverride end,
+		set = function(_, v) EnablePetOverride(Sel(), v) end
 	},
 	ovPetAnchor = { type = "select", order = 40, name = L["Pet Layout Anchor"], disabled = petPosGate, values = OV_ANCHOR,
 		get = ovGet("petAnchor"), set = ovSetAnchor("petAnchor", function() return Grid2Layout.petFrame end) },

@@ -271,6 +271,12 @@ local LGTRoleTable = {melee = "DAMAGER", caster = "DAMAGER", healer = "HEALER", 
 function Grid2.GetUnitRole(unit, class)
 	unit = unit or "player" -- always fallback to player
 
+	-- Raids have no LFG roles, but Main Tanks / Main Assists can be flagged; honor those so assigned tanks
+	-- sort and label as tanks (matches Grid2's "By Role w/tanks" tank group of MAINTANK,MAINASSIST).
+	if GetPartyAssignment("MAINTANK", unit) or GetPartyAssignment("MAINASSIST", unit) then
+		return "TANK"
+	end
+
 	-- For LFG using "UnitGroupRolesAssigned" is enough.
 	local isTank, isHealer, isDamager = UnitGroupRolesAssigned(unit)
 	if isTank then

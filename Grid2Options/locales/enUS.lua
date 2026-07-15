@@ -66,10 +66,12 @@ L["Configure the tank/healer/dps ordering used by Role sort."] = true
 L["DPS"] = true
 
 L["Per-Layout Overrides"] = true
+L["Per-Layout Pet Overrides"] = true
 L["Configure layout"] = true
 L["Pick which layout's settings to view and edit below."] = true
 L["Use separate settings for this layout"] = true
 L["When on, this layout uses its own position/scale/geometry below instead of the global settings."] = true
+L["When on, this layout gives pet frames their own container with the position/scale/geometry below -- for this layout only. Works on its own: it does NOT need the main Per-Layout Overrides (General tab) or the global 'Position pet frames separately'."] = true
 
 L["Default Font"] = true
 
