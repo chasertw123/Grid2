@@ -21,6 +21,17 @@ local layoutName  -- name of the layout being previewed (nil => test off)
 -- preview reflects that layout's own position/scale/geometry overrides. Reads only -- never persists anything.
 local function LV(key) return Grid2Layout:LayoutValue(layoutName, key) end
 
+-- Is a pet MODE (petEnabled/petOwnScale/petOwnGrowth) active for layout `name`? Mirrors PetMode in
+-- Grid2/GridLayout.lua: the global toggle OR that layout's own pet override (ov.petOverride) turns it on, so the
+-- preview reflects a self-contained per-layout pet override. Read-only. (The separate pet container can only be
+-- drawn if Grid2Layout.petFrame already exists; the real engine creates it when a pet-separate layout loads.)
+local function PetModeFor(name, globalKey)
+	local p = Grid2Layout.db.profile
+	if p[globalKey] then return true end
+	local ov = p.layoutOverrides and p.layoutOverrides[name or "solo"]
+	return (ov and ov.petOverride) or false
+end
+
 -- One descriptor per preview grid. mainGrid -> Grid2Layout.frame; petGrid -> Grid2Layout.petFrame (only when
 -- the pet container feature is enabled). Each owns pooled REAL frames that persist across loads, the per-column
 -- membership rebuilt every refresh, and the container scale saved on first render. headerId seeds a unique,
@@ -40,9 +51,9 @@ function Grid2Layout:ShowFrames(enabled)
 end
 
 -- Growth resolver mirroring Grid2/GridLayout.lua GetGrowth, but resolving each value for the PREVIEWED layout
--- via LV (read-only per-layout override lookup). Pet MODE gates (petEnabled/petOwnGrowth) stay global.
+-- via LV (read-only per-layout override lookup). Pet MODE gates resolve per-layout too (PetModeFor).
 local function GetGrowth(p, isPet)
-	if isPet and p.petEnabled and p.petOwnGrowth then
+	if isPet and PetModeFor(layoutName, "petEnabled") and PetModeFor(layoutName, "petOwnGrowth") then
 		local h = LV("petHorizontal")
 		if h == nil then h = LV("horizontal") end
 		return h, LV("petGroupAnchor") or LV("groupAnchor"), LV("petPadding") or LV("Padding"), LV("petSpacing") or LV("Spacing")
@@ -81,7 +92,7 @@ local function EnsureScaled(grid)
 	local p = Grid2Layout.db.profile
 	local ls = p.layoutScales[layoutName] or 1
 	local base = LV("ScaleSize") * ls
-	local scale = grid.isPet and (p.petOwnScale and (LV("PetScaleSize") * ls) or base) or base
+	local scale = grid.isPet and (PetModeFor(layoutName, "petOwnScale") and (LV("PetScaleSize") * ls) or base) or base
 	grid.savedScale = f:GetScale()
 	f:SetScale(scale)
 	Grid2Layout:RestoreFramePosition(f, layoutName)   -- read-only re-anchor at the previewed layout's position
@@ -110,7 +121,7 @@ local function LayoutBuild()
 	local layout = Grid2Layout.layoutSettings[layoutName]
 	if not layout then return end
 	local p = Grid2Layout.db.profile
-	local petSeparate = p.petEnabled and Grid2Layout.petFrame ~= nil
+	local petSeparate = PetModeFor(layoutName, "petEnabled") and Grid2Layout.petFrame ~= nil
 	local defaults = layout.defaults or {}
 
 	for i, l in ipairs(layout) do
@@ -380,9 +391,9 @@ local function LayoutHide(restoreRealLayout)
 		-- of CheckVisibility but reads the main frame's shown state instead of partyType.
 		local pf = Grid2Layout.petFrame
 		if pf then
-			local pp = Grid2Layout.db.profile
 			local hasPets = (Grid2Layout.indexes.raidpet + Grid2Layout.indexes.partypet) > 0
-			if Grid2Layout.frame:IsShown() and pp.petEnabled and hasPets then pf:Show() else pf:Hide() end
+			-- Use the ACTIVE layout's pet mode (global OR its own petOverride), matching the engine CheckVisibility.
+			if Grid2Layout.frame:IsShown() and PetModeFor(Grid2Layout.layoutName, "petEnabled") and hasPets then pf:Show() else pf:Hide() end
 		end
 	end
 end
