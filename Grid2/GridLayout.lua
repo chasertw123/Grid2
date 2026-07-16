@@ -649,6 +649,20 @@ function Grid2Layout:LoadLayout(layoutName)
 	end
 
 	self:UpdateDisplay()
+
+	-- WoW 3.3.5a secure SecureGroupHeaders arrange/size their child buttons on a LATER frame, so right now
+	-- g:GetWidth()/g:GetHeight() (read by UpdateSize) are still stale/zero and UIParent's effective scale may not
+	-- be final -- so the container size AND the pixel-snapped anchor (RestoreFramePosition divides the stored coord
+	-- by the not-yet-final GetEffectiveScale) both come out wrong on a fresh /reload or login. Toggling Test layout
+	-- OFF only "fixes" centering because LayoutHide re-runs UpdateSize + RestoreFramePosition AFTER the frames
+	-- settle. Mirror that on the load path: once the headers settle, re-run size + position. Use AceTimer (embedded
+	-- on the Grid2 core -- C_Timer is NOT part of 3.3.5a, only polyfilled by some other addons, so it can't be
+	-- relied on here) for a safe ~0.1s window. Both calls self-guard InCombatLockdown and LoadLayout only runs out
+	-- of combat, so this never reconfigures anything in combat; re-running for the current layout is idempotent.
+	Grid2:ScheduleTimer(function()
+		self:UpdateSize()
+		self:RestorePosition()
+	end, 0.1)
 end
 
 function Grid2Layout:UpdateDisplay()
