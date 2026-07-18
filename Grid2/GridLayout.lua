@@ -308,7 +308,7 @@ function Grid2Layout:OnModuleEnable()
 		self:ReloadLayout()
 	end
 	self:RegisterMessage("Grid_GroupTypeChanged")
-	self:RegisterMessage("Grid_UpdateLayoutSize", "UpdateSize")
+	self:RegisterMessage("Grid_UpdateLayoutSize", "UpdateSizeSoon")
 	self:RegisterEvent("PLAYER_REGEN_ENABLED")
 end
 
@@ -733,6 +733,25 @@ function Grid2Layout:UpdateSize()
 		self.petFrame:SetWidth(ph and pMaxWidth + pSpc2 or pCurWidth + pSpc2 - pPad)
 		self.petFrame:SetHeight(ph and pCurHeight + pSpc2 - pPad or pMaxHeight + pSpc2)
 	end
+end
+
+-- Grid_UpdateLayoutSize is fired by a unit-frame's OnShow/OnHide when the roster changes. On 3.3.5a the secure
+-- headers arrange/measure their child buttons on a LATER frame, so a synchronous UpdateSize here reads a STALE
+-- (usually too-small) header width. For an open-world party size change (3<->4<->5) partyType stays "party", so
+-- LoadLayout -- and its own 0.1s deferred re-measure -- never runs, leaving the container mis-sized: with a
+-- TOP/center anchor and left-aligned content a too-small width renders the group off-center with an apparent
+-- empty left slot. Do the immediate size as before, then re-measure once the headers settle, mirroring the
+-- LoadLayout heal. Trailing-debounced so a burst of OnShow/OnHide coalesces into one settled pass. UpdateSize and
+-- RestorePosition both self-guard InCombatLockdown and only touch the non-secure container frames, so this never
+-- reconfigures anything secure in combat. AceTimer (Grid2:ScheduleTimer) because C_Timer is not part of 3.3.5a.
+function Grid2Layout:UpdateSizeSoon()
+	self:UpdateSize()
+	if self.updateSizeTimer then Grid2:CancelTimer(self.updateSizeTimer) end
+	self.updateSizeTimer = Grid2:ScheduleTimer(function()
+		self.updateSizeTimer = nil
+		self:UpdateSize()
+		self:RestorePosition()
+	end, 0.1)
 end
 
 function Grid2Layout:UpdateTextures(frame)
