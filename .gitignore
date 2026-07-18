@@ -4,6 +4,7 @@
 /*
 !/.gitignore
 !/.github/
+!/README.md
 !/Grid2/
 !/Grid2Options/
 !/Grid2AoeHeals/
