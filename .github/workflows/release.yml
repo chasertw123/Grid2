@@ -1,0 +1,96 @@
+name: Release
+
+# Publish a GitHub Release when a version tag (vX.Y.Z) is pushed, or on demand.
+# Bundles Grid2 + Grid2Options + Grid2AoeHeals into a single Grid2-<version>.zip
+# and stamps the version into each addon's .toc (in the zip only; the repo is untouched).
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'   # semver tags only (v1.2.3, v1.2.3-rc1); ignores unrelated tags
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 1.0.0 or v1.0.0)'
+        required: true
+
+permissions:
+  contents: write   # needed to create the release + tag
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: ver
+        env:                                  # pass event data via env (never interpolate untrusted input into the script)
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            RAW="$INPUT_VERSION"
+            VERSION="$(printf '%s' "${RAW#v}" | tr -cd 'A-Za-z0-9._-')"
+            TAG="v${VERSION}"                       # no tag exists yet on dispatch; create a normalized one
+          else
+            TAG="$REF_NAME"                         # release the exact tag that was pushed
+            VERSION="$(printf '%s' "${TAG#v}" | tr -cd 'A-Za-z0-9._-')"
+          fi
+          # require a semver-shaped version; rejects junk (bad dispatch input, or a stray non-release tag)
+          case "$VERSION" in
+            [0-9]*.[0-9]*.[0-9]*) : ;;
+            *) echo "::error::version '$VERSION' is not X.Y.Z"; exit 1 ;;
+          esac
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}"         >> "$GITHUB_OUTPUT"
+          echo "Releasing ${TAG} (version ${VERSION})"
+
+      - name: Stamp version into TOC files
+        env:
+          V: ${{ steps.ver.outputs.version }}
+        run: |
+          for toc in Grid2/*.toc Grid2Options/*.toc Grid2AoeHeals/*.toc; do
+            [ -f "$toc" ] || continue
+            if grep -q '^## Version:' "$toc"; then
+              sed -i "s/^## Version:.*/## Version: ${V}/" "$toc"
+            else
+              sed -i "1a ## Version: ${V}" "$toc"
+            fi
+          done
+          echo "Stamped versions:"
+          grep -H '^## Version:' Grid2/*.toc Grid2Options/*.toc Grid2AoeHeals/*.toc
+
+      - name: Build package
+        id: build
+        env:
+          V: ${{ steps.ver.outputs.version }}
+        run: |
+          ZIP="Grid2-${V}.zip"
+          zip -r "$ZIP" Grid2 Grid2Options Grid2AoeHeals -x '*/.git/*'
+          echo "zip=${ZIP}" >> "$GITHUB_OUTPUT"
+          echo "Package contents:"
+          unzip -l "$ZIP"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          ZIP: ${{ steps.build.outputs.zip }}
+          SHA: ${{ github.sha }}
+        run: |
+          # idempotent: if a release for this tag already exists, refresh its asset; otherwise create it
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; updating its asset."
+            gh release upload "$TAG" "$ZIP" --clobber
+          else
+            gh release create "$TAG" "$ZIP" \
+              --target "$SHA" \
+              --title "Grid2 ${VERSION}" \
+              --generate-notes
+          fi

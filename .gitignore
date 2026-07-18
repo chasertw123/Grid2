@@ -3,6 +3,7 @@
 # ignored and must never be tracked or modified.
 /*
 !/.gitignore
+!/.github/
 !/Grid2/
 !/Grid2Options/
 !/Grid2AoeHeals/
