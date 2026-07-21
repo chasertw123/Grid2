@@ -310,12 +310,14 @@ function Grid2Layout:OnModuleEnable()
 	self:RegisterMessage("Grid_GroupTypeChanged")
 	self:RegisterMessage("Grid_UpdateLayoutSize", "UpdateSizeSoon")
 	self:RegisterEvent("PLAYER_REGEN_ENABLED")
+	self:RegisterEvent("PLAYER_ENTERING_WORLD", "UpdateSizeSoon")   -- re-center after the login/reload/zone loading screen (slow UI settle)
 end
 
 function Grid2Layout:OnModuleDisable()
 	self:UnregisterMessage("Grid_GroupTypeChanged")
-	self:UnregisterMessage("Grid_UpdateLayoutSize", "UpdateSize")
+	self:UnregisterMessage("Grid_UpdateLayoutSize")
 	self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+	self:UnregisterEvent("PLAYER_ENTERING_WORLD")
 	self.frame:Hide()
 	if self.petFrame then self.petFrame:Hide() end
 end
@@ -735,23 +737,32 @@ function Grid2Layout:UpdateSize()
 	end
 end
 
--- Grid_UpdateLayoutSize is fired by a unit-frame's OnShow/OnHide when the roster changes. On 3.3.5a the secure
--- headers arrange/measure their child buttons on a LATER frame, so a synchronous UpdateSize here reads a STALE
--- (usually too-small) header width. For an open-world party size change (3<->4<->5) partyType stays "party", so
--- LoadLayout -- and its own 0.1s deferred re-measure -- never runs, leaving the container mis-sized: with a
--- TOP/center anchor and left-aligned content a too-small width renders the group off-center with an apparent
--- empty left slot. Do the immediate size as before, then re-measure once the headers settle, mirroring the
--- LoadLayout heal. Trailing-debounced so a burst of OnShow/OnHide coalesces into one settled pass. UpdateSize and
--- RestorePosition both self-guard InCombatLockdown and only touch the non-secure container frames, so this never
--- reconfigures anything secure in combat. AceTimer (Grid2:ScheduleTimer) because C_Timer is not part of 3.3.5a.
+-- Re-measure + re-center the container once the secure headers have settled. On 3.3.5a a SecureGroupHeader
+-- arranges/measures its child buttons a few frames LATER, so a synchronous UpdateSize reads a STALE (too-small)
+-- width; with a TOP/center anchor and left-aligned content that renders the group off-center with an apparent
+-- empty left slot. Two triggers land here: Grid_UpdateLayoutSize (a unit frame's OnShow/OnHide on a roster change
+-- -- e.g. an open-world party 3<->4<->5, which keeps partyType "party" so LoadLayout's own heal never runs) and
+-- PLAYER_ENTERING_WORLD (login/reload/zone, where the whole UI settles slowly over ~1s and a single 0.1s pass is
+-- far too early -- the symptom being a party that's off-center right after logging in and only fixes on the next
+-- relayout, e.g. leaving combat). So: do the immediate size, then re-measure a handful of times over ~1s until the
+-- headers settle (idempotent once stable). Trailing-debounced (cancel+reschedule) so a burst of events coalesces
+-- into one settle sequence. UpdateSize/RestorePosition both self-guard InCombatLockdown and touch only the
+-- non-secure container frames, so nothing secure is reconfigured in combat. AceTimer because C_Timer isn't 3.3.5a.
 function Grid2Layout:UpdateSizeSoon()
 	self:UpdateSize()
 	if self.updateSizeTimer then Grid2:CancelTimer(self.updateSizeTimer) end
-	self.updateSizeTimer = Grid2:ScheduleTimer(function()
-		self.updateSizeTimer = nil
+	self.updateSizeTries = 5
+	local function settle()
 		self:UpdateSize()
 		self:RestorePosition()
-	end, 0.1)
+		self.updateSizeTries = self.updateSizeTries - 1
+		if self.updateSizeTries > 0 then
+			self.updateSizeTimer = Grid2:ScheduleTimer(settle, 0.2)
+		else
+			self.updateSizeTimer = nil
+		end
+	end
+	self.updateSizeTimer = Grid2:ScheduleTimer(settle, 0.1)
 end
 
 function Grid2Layout:UpdateTextures(frame)
