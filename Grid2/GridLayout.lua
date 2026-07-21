@@ -679,6 +679,7 @@ function Grid2Layout:UpdateDisplay()
 end
 
 function Grid2Layout:UpdateSize()
+	if self.testLayoutActive then return end   -- the test-layout preview owns the container size; don't clobber it
 	if InCombatLockdown() then
 		self.updateSizeQueued = true
 		return
@@ -899,6 +900,7 @@ function Grid2Layout:ResetPetPosition()
 end
 
 function Grid2Layout:RestorePosition()
+	if self.testLayoutActive then return end   -- the test-layout preview owns the container position; don't clobber it
 	if InCombatLockdown() then
 		self.restorePositionQueued = true
 		return

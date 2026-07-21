@@ -384,6 +384,7 @@ local function LayoutHide(restoreRealLayout)
 		RestoreScale(grid)
 	end
 	if restoreRealLayout then
+		Grid2Layout.testLayoutActive = nil   -- hand the container back to the core BEFORE it re-sizes/re-centers the real layout
 		layoutName = nil
 		Grid2Layout:ShowFrames(true)
 		Grid2Layout:UpdateSize()
@@ -415,6 +416,10 @@ local function LayoutLoad(name)
 	if layoutName then LayoutHide(false) end  -- tear down current preview (keeps real headers hidden)
 	if not Grid2Layout.layoutSettings[name] then return end
 	layoutName = name
+	-- The preview now owns the shared container: suppress the core UpdateSize/RestorePosition (incl. the deferred
+	-- settle loop) so hiding the real headers in LayoutRefresh->ShowFrames(false) can't collapse it. Set BEFORE
+	-- that ShowFrames(false), whose OnHide cascade fires Grid_UpdateLayoutSize -> UpdateSizeSoon.
+	Grid2Layout.testLayoutActive = true
 	return true  -- geometry/scale/render all happen in the LayoutRefresh that follows
 end
 
