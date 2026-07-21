@@ -386,15 +386,21 @@ local function LayoutHide(restoreRealLayout)
 	if restoreRealLayout then
 		Grid2Layout.testLayoutActive = nil   -- hand the container back to the core BEFORE it re-sizes/re-centers the real layout
 		layoutName = nil
-		Grid2Layout:ShowFrames(true)
-		Grid2Layout:UpdateSize()
-		-- restore the pet container's real visibility (the preview may have hidden it). Mirrors the pet branch
-		-- of CheckVisibility but reads the main frame's shown state instead of partyType.
-		local pf = Grid2Layout.petFrame
-		if pf then
-			local hasPets = (Grid2Layout.indexes.raidpet + Grid2Layout.indexes.partypet) > 0
-			-- Use the ACTIVE layout's pet mode (global OR its own petOverride), matching the engine CheckVisibility.
-			if Grid2Layout.frame:IsShown() and PetModeFor(Grid2Layout.layoutName, "petEnabled") and hasPets then pf:Show() else pf:Hide() end
+		if Grid2Layout.reloadLayoutQueued then
+			-- A group/roster change happened while the preview was up (its ReloadLayout was deferred). Do the full
+			-- rebuild now so the restored real layout matches the current group (this also re-shows/sizes/centers it).
+			Grid2Layout:ReloadLayout()
+		else
+			Grid2Layout:ShowFrames(true)
+			Grid2Layout:UpdateSize()
+			-- restore the pet container's real visibility (the preview may have hidden it). Mirrors the pet branch
+			-- of CheckVisibility but reads the main frame's shown state instead of partyType.
+			local pf = Grid2Layout.petFrame
+			if pf then
+				local hasPets = (Grid2Layout.indexes.raidpet + Grid2Layout.indexes.partypet) > 0
+				-- Use the ACTIVE layout's pet mode (global OR its own petOverride), matching the engine CheckVisibility.
+				if Grid2Layout.frame:IsShown() and PetModeFor(Grid2Layout.layoutName, "petEnabled") and hasPets then pf:Show() else pf:Hide() end
+			end
 		end
 	end
 end

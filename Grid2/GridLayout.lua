@@ -544,6 +544,10 @@ function Grid2Layout:SetClamp()
 end
 
 function Grid2Layout:ReloadLayout(force)
+	if self.testLayoutActive then   -- the test-layout preview owns the frame; defer the real rebuild (which would
+		self.reloadLayoutQueued = true   -- re-Show/re-Scale the real headers over the preview) until the preview closes
+		return
+	end
 	if InCombatLockdown() and not force then
 		self.reloadLayoutQueued = true
 		return
